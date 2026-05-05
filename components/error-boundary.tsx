@@ -26,7 +26,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <p className="mt-2 text-[13px] text-[var(--text-secondary)]">{this.state.error.message}</p>
             <button
               type="button"
-              className="mt-4 rounded-xl border border-[var(--border)] px-4 py-2 text-[12px] text-white"
+              className="btn btn-outline mt-4"
               onClick={() => this.setState({ error: null })}
             >
               Try again

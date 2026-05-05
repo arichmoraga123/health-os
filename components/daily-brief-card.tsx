@@ -55,7 +55,7 @@ export function DailyBriefCard({
           type="button"
           onClick={regenerate}
           disabled={loading}
-          className="shrink-0 rounded-xl border border-[var(--border)] bg-white/[0.06] px-4 py-2 text-[12px] font-medium text-white hover:bg-white/[0.1] disabled:opacity-50"
+          className="btn btn-outline shrink-0 disabled:opacity-50"
         >
           {loading ? "Generating…" : "Regenerate"}
         </button>

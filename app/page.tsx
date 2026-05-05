@@ -57,16 +57,13 @@ export default function Home() {
           value={token}
           onChange={(e) => setToken(e.target.value)}
         />
-        <button
-          disabled={loading}
-          className="w-full rounded-full bg-[var(--sleep)] py-3 text-[13px] font-bold uppercase tracking-wide text-white disabled:opacity-50"
-        >
+        <button disabled={loading} className="btn btn-primary w-full disabled:opacity-50">
           {loading ? "Connecting..." : "Connect Oura"}
         </button>
         <button
           type="button"
           onClick={() => login(true)}
-          className="w-full rounded-full border border-[var(--border)] bg-white/[0.06] py-3 text-[13px] font-semibold text-white"
+          className="btn btn-outline w-full"
         >
           Try Demo
         </button>

@@ -161,7 +161,7 @@ export function TripPlanner() {
           type="button"
           onClick={generate}
           disabled={loading}
-          className="mt-6 rounded-full bg-[var(--sleep)] px-8 py-3 text-[13px] font-bold uppercase tracking-wide text-white hover:opacity-90 disabled:opacity-50"
+          className="btn btn-primary mt-6 disabled:opacity-50"
         >
           {loading ? "Generating…" : "Generate plan"}
         </button>

@@ -112,11 +112,7 @@ export function DashboardClient({
                 key={d}
                 type="button"
                 onClick={() => setRange(d)}
-                className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
-                  range === d
-                    ? "bg-white text-black"
-                    : "border border-[var(--border)] bg-white/[0.04] text-[var(--text-secondary)] hover:text-white"
-                }`}
+                className={`btn ${range === d ? "btn-primary" : "btn-outline"} !px-4 !py-2 !text-[11px] uppercase tracking-wider`}
               >
                 {d}d
               </button>
@@ -126,7 +122,7 @@ export function DashboardClient({
             type="button"
             onClick={syncNow}
             disabled={syncing}
-            className="rounded-full bg-[var(--ready)] px-5 py-2 text-[12px] font-bold uppercase tracking-wide text-black hover:opacity-90 disabled:opacity-50"
+            className="btn btn-primary !px-5 !py-2 !text-[12px] uppercase tracking-wide disabled:opacity-50"
           >
             {syncing ? "Syncing…" : "Sync now"}
           </button>

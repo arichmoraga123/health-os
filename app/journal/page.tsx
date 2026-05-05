@@ -15,7 +15,7 @@ export default async function JournalPage() {
         <div>{prompt}</div>
         <form className="mt-3 space-y-2" action="/api/ai/journal" method="post">
           <textarea name="entry" className="w-full h-40 panel p-2 bg-[var(--surface2)]" />
-          <button className="panel px-3 py-2 bg-[var(--ready)] text-black">Save & Reflect</button>
+          <button className="btn btn-primary">Save & Reflect</button>
         </form>
       </section>
       <section className="panel p-4 mt-4">Entries this month: {history.length}</section>

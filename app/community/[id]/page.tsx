@@ -12,9 +12,7 @@ export default async function CommunityDetailPage({ params }: { params: Promise<
           <button
             key={tab}
             type="button"
-            className={`rounded-full px-4 py-2 text-[11px] font-bold uppercase tracking-wider ${
-              i === 0 ? "bg-white text-black" : "border border-[var(--border)] bg-white/[0.04] text-[var(--text-secondary)]"
-            }`}
+            className={`btn ${i === 0 ? "btn-primary" : "btn-outline"} !px-4 !py-2 !text-[11px] uppercase tracking-wider`}
           >
             {tab}
           </button>

@@ -85,7 +85,7 @@ export default async function CommunityPage() {
               <button
                 key={label}
                 type="button"
-                className="rounded-full border border-[var(--border)] bg-[var(--sleep)]/20 px-4 py-2 text-[12px] font-semibold text-white hover:bg-[var(--sleep)]/30"
+                className="btn btn-outline !px-4 !py-2 !text-[12px]"
               >
                 {label}
               </button>

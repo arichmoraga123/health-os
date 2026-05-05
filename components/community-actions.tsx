@@ -51,7 +51,7 @@ export function CommunityActions() {
         />
         <button
           type="submit"
-          className="rounded-full bg-[var(--ready)] px-6 py-3 text-[12px] font-bold uppercase tracking-wide text-black"
+          className="btn btn-primary"
         >
           Create
         </button>
@@ -66,7 +66,7 @@ export function CommunityActions() {
         />
         <button
           type="submit"
-          className="rounded-full border border-[var(--border)] bg-white/[0.06] px-6 py-3 text-[12px] font-bold uppercase tracking-wide text-white"
+          className="btn btn-outline"
         >
           Join
         </button>

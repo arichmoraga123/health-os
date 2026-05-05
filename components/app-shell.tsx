@@ -86,13 +86,13 @@ export function AppShell({
                 <button
                   type="button"
                   onClick={() => signOut({ callbackUrl: "/" })}
-                  className="rounded-lg border border-[var(--border)] bg-white/[0.04] px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:text-white"
+                  className="btn btn-outline !px-3 !py-2 !text-[11px]"
                 >
                   Sign out
                 </button>
                 <button
                   type="button"
-                  className="rounded-lg border border-[var(--border)] bg-white/[0.04] px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:text-white"
+                  className="btn btn-outline !px-3 !py-2 !text-[11px]"
                 >
                   Export
                 </button>

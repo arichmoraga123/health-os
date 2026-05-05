@@ -32,7 +32,7 @@ export default function AICoachPage() {
       </section>
       <section className="mt-3 flex gap-2">
         <input value={input} onChange={(e) => setInput(e.target.value)} className="flex-1 panel p-2 bg-[var(--surface2)]" />
-        <button onClick={send} className="panel px-3 py-2 bg-[var(--ready)] text-black">
+        <button onClick={send} className="btn btn-primary">
           Send
         </button>
       </section>
