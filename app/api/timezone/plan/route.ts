@@ -3,40 +3,28 @@ import { getTimezoneOffset } from "date-fns-tz";
 import { NextResponse } from "next/server";
 import { db } from "@/db/client";
 import { timezonePlans } from "@/db/schema";
-import { askClaude } from "@/lib/ai";
+import { createClaudeMessage } from "@/lib/ai";
 import { requireApiUser } from "@/lib/api-auth";
 import { resolveCityTimeZone } from "@/lib/city-tz";
+import { landingDateKeyInDestination } from "@/lib/trip-dates";
+import { getSnapshotsAsc, getUserById } from "@/lib/health";
+import type { Phase5StructuredPlan } from "@/lib/trip-plan-types";
+import {
+  avgBedtimeWakeMinutes,
+  computeTravelReadiness,
+  currentReadiness,
+  detectChronotype,
+  hrv7DayAverage,
+} from "@/lib/trip-metrics";
 
-type StructuredPlan = {
-  flightPlan: {
-    sleepWindows: Array<{ start: string; end: string; timezone: "origin" | "dest"; note: string }>;
-    awakeWindows: Array<{ start: string; end: string; note: string }>;
-    melatoninOnFlight: string;
-    mealStrategy: string;
-  };
-  preDeparture: Array<{ day: -3 | -2 | -1; advice: string; sleepTarget: string }>;
-  arrivalDay: { immediateActions: string; targetBedtime: string; lightExposure: string };
-  dailyPlans: Array<{
-    dayNumber: number;
-    date: string;
-    targetSleep: string;
-    targetWake: string;
-    lightSeek: string;
-    lightAvoid: string;
-    exercise: string;
-    expectedReadiness: number;
-    expectedHRV: number;
-    notes: string;
-  }>;
-  melatoninSchedule: Array<{ day: number; time: string; dose: string }>;
-  caffeineStrategy: string;
-};
-
-function parsePlanJson(text: string): StructuredPlan | null {
-  const m = text.match(/\{[\s\S]*\}/);
-  if (!m) return null;
+function extractJsonObject(text: string): Phase5StructuredPlan | null {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const body = (fenced?.[1] ?? text).trim();
+  const start = body.indexOf("{");
+  const end = body.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
   try {
-    return JSON.parse(m[0]) as StructuredPlan;
+    return JSON.parse(body.slice(start, end + 1)) as Phase5StructuredPlan;
   } catch {
     return null;
   }
@@ -53,6 +41,9 @@ export async function POST(request: Request) {
     departureTime?: string;
     flightDuration?: number;
     returnDate?: string;
+    airline?: string;
+    flightNumber?: string;
+    firstCommitment?: { date?: string; time?: string; type?: string };
   };
   try {
     body = await request.json();
@@ -66,6 +57,9 @@ export async function POST(request: Request) {
   const departureTime = body.departureTime || "09:00";
   const flightDuration = Number(body.flightDuration) || 6;
   const returnDate = body.returnDate || "";
+  const airline = body.airline?.trim() || "";
+  const flightNumber = body.flightNumber?.trim() || "";
+  const firstCommitment = body.firstCommitment ?? {};
 
   if (!origin || !destination || !departureDate) {
     return NextResponse.json({ error: "origin, destination, and departureDate are required" }, { status: 400 });
@@ -78,42 +72,145 @@ export async function POST(request: Request) {
   const offsetHours =
     (getTimezoneOffset(originTz, pivot) - getTimezoneOffset(destTz, pivot)) / 3_600_000;
 
-  const prompt = `Generate a comprehensive jet lag plan with these exact sections:
-1) FLIGHT PLAN with exact SLEEP and AWAKE windows on the flight (origin + destination time references), melatonin on flight, meal timing, eye mask/earplugs guidance.
-2) PRE-DEPARTURE for day -3/-2/-1
-3) ARRIVAL DAY immediate actions and target bedtime
-4) DAYS 1-5 POST ARRIVAL with target sleep/wake, light windows, exercise, expected readiness and HRV
-5) RETURN TRIP notes (if return date exists)
+  const travelDirection =
+    offsetHours > 0 ? "eastward" : offsetHours < 0 ? "westward" : "minimal_shift";
 
-Return ONLY valid JSON with exactly this shape:
+  const user = await getUserById(auth.userId);
+  const userTz = user?.currentTimezone || user?.homeTimezone || "UTC";
+  const snapshots = await getSnapshotsAsc(auth.userId, 30, userTz);
+  const travelReadiness = computeTravelReadiness(snapshots);
+  const chronotype = detectChronotype(snapshots);
+  const hrv7 = hrv7DayAverage(snapshots);
+  const readinessToday = currentReadiness(snapshots);
+  const { avgBedtime, avgWake, avgSleepHours } = avgBedtimeWakeMinutes(snapshots);
+
+  const landingDateDest = landingDateKeyInDestination(
+    departureDate,
+    departureTime,
+    flightDuration,
+    originTz,
+    destTz,
+  );
+
+  const commitmentLine =
+    firstCommitment?.date && firstCommitment?.time
+      ? `First high-stakes commitment at destination: ${firstCommitment.date} ${firstCommitment.time} (${firstCommitment.type || "other"}). The entire protocol must work backwards from this event — cite it in executiveSummary, in-flight narrative, and daily warnings.`
+      : "No specific commitment time provided; still anchor advice to typical business peak cognitive hours after landing.";
+
+  const userMetrics = `OURA BASELINE (real numbers — every recommendation must reference these):
+- Travel readiness score (server): ${travelReadiness.score}/100 (${travelReadiness.band}). Interpretation: ${travelReadiness.interpretation}
+- Today's readiness (latest night): ${readinessToday ?? "unknown"}
+- 7-day average HRV: ${hrv7 ?? "unknown"} ms
+- Chronotype from 14-night average wake (bedtime_end): ${chronotype}
+- Average bedtime (14d): ${avgBedtime}; average wake (14d): ${avgWake}
+- Average sleep duration (14d): ${avgSleepHours != null ? `${avgSleepHours.toFixed(2)} h` : "unknown"}
+- Timezone shift: ${offsetHours.toFixed(1)} h (${travelDirection} — offset > 0 means eastward for this engine)
+- Origin TZ: ${originTz}; Destination TZ: ${destTz}
+- Landing local date at destination: ${landingDateDest}
+${commitmentLine}`;
+
+  const jsonShape = `Return ONLY valid JSON (no markdown fences) with this exact top-level shape and populated strings/arrays:
 {
+  "executiveSummary": "2-4 sentences referencing the user's readiness number, HRV average, chronotype, and commitment if any",
+  "performanceFraming": "1 paragraph working backwards from the commitment or peak cognitive need",
+  "directionScience": { "direction": "${travelDirection}", "bullets": ["3-5 bullets: light, melatonin rule, first nights, plane sleep rule for this direction"] },
+  "chronotypeAdvice": "2-4 sentences for ${chronotype} + ${travelDirection}",
+  "sleepBanking": {
+    "narrative": "cite their avg sleep hours vs target 8.5h banking",
+    "targetSleepHours": 8.5,
+    "hoursToBankTotal": number,
+    "dailyChecklist": [{"dayLabel":"string","targetHours":8.5,"tip":"string"}]
+  },
+  "preDepartureDays": [
+    {"dayLabel":"3 Days Before Departure","date":"optional","bedtime":"HH:MM with shift note","wake":"HH:MM","brightLight":"exact timing","avoidBrightLight":"exact timing","melatonin":"dose + time or none","exercise":"morning vs evening per direction","caffeineCutoff":"HH:MM"}
+  ],
+  "preDeparture": [{"day":-3,"advice":"string","sleepTarget":"string"}],
   "flightPlan": {
+    "timesSummary": {"departOriginLocal":"string","landDestLocal":"string","destTimeAtBoarding":"string","destTimeAtLanding":"string"},
     "sleepWindows": [{"start":"HH:MM","end":"HH:MM","timezone":"origin|dest","note":"string"}],
     "awakeWindows": [{"start":"HH:MM","end":"HH:MM","note":"string"}],
-    "melatoninOnFlight": "string",
-    "mealStrategy": "string"
+    "melatoninOnFlight": "exact instruction with times",
+    "mealStrategy": "eat vs fast with rationale",
+    "hydrationMlPerHour": 200,
+    "seatAndGear": ["window seat","compression socks","mask timing"],
+    "screenPolicy": "when to avoid blue light"
   },
-  "preDeparture": [{"day":-3,"advice":"string","sleepTarget":"string"}],
+  "flightTimeline": {
+    "segments": [{"startHourOfFlight":0,"endHourOfFlight":2,"phase":"awake|sleep|wind_down|caffeine|melatonin","label":"string","detail":"string"}],
+    "narrative": "authoritative timing; mention alarms if sleep block"
+  },
+  "arrivalProtocol": {
+    "hotelCheckIn": "string",
+    "napRule": "only if offset >6h and max 20 min before 3pm local — else no nap",
+    "firstMeal": "string",
+    "brightLightWindow": "between X and Y local",
+    "avoidList": ["blackout before local bedtime etc"],
+    "exercise": "light walk only day 0"
+  },
   "arrivalDay": {"immediateActions":"string","targetBedtime":"string","lightExposure":"string"},
-  "dailyPlans": [{
-    "dayNumber":1,"date":"string","targetSleep":"string","targetWake":"string","lightSeek":"string","lightAvoid":"string","exercise":"string","expectedReadiness":70,"expectedHRV":40,"notes":"string"
-  }],
-  "melatoninSchedule": [{"day":1,"time":"string","dose":"string"}],
-  "caffeineStrategy": "string"
+  "dailyPlans": [
+    {"dayNumber":1,"date":"string","targetSleep":"string","targetWake":"string","lightSeek":"string","lightAvoid":"string","exercise":"string","expectedReadiness":70,"expectedHrvPctOfBaseline":0.82,"expectedHRV":40,"notes":"string","highStakesWarning":"optional if commitment falls this day"}
+  ],
+  "predictedRecoveryCurve": [
+    {"dayOffset":0,"expectedReadiness":62,"expectedHrvPctOfBaseline":0.88}
+  ],
+  "melatoninSchedule": [{"day":1,"time":"string","dose":"0.5mg typical"}],
+  "caffeineStrategy": "paragraph for direction",
+  "caffeineTimelineDays": [
+    {"dayLabel":"Pre-trip -2","okWindows":["before 1pm origin"],"avoidWindows":["after 1pm origin"]}
+  ]
 }
-Trip facts: depart ${departureDate} ${departureTime}, ${flightDuration}h flight, origin ${origin} (${originTz}), destination ${destination} (${destTz}), return ${returnDate || "n/a"}, offset ${offsetHours.toFixed(1)}h.`;
+Fill arrays for 3 preDepartureDays, 5 dailyPlans, predictedRecoveryCurve for dayOffset 0-7, caffeineTimelineDays for pre-trip + first 3 destination days + flight day as needed.`;
+
+  const prompt = `You are a circadian performance physician for elite professionals. Tone: authoritative, specific, never vague. No "try to sleep if you can" — give exact windows and alarms where useful.
+
+${userMetrics}
+
+TRIP: ${origin} → ${destination}. Depart ${departureDate} ${departureTime} (${originTz}), ${flightDuration} h flight, airline ref: ${airline || "n/a"} ${flightNumber || ""}. Return: ${returnDate || "n/a"}.
+
+${jsonShape}`;
 
   let raw: string;
   try {
-    raw = await askClaude(prompt);
+    const res = await createClaudeMessage({
+      system:
+        "Reply with a single JSON object only. No markdown, no prose outside JSON. Numbers in dailyPlans.expectedReadiness must be integers 0-100. expectedHrvPctOfBaseline is 0-1 fraction of their baseline HRV from metrics.",
+      messages: [{ role: "user", content: prompt }],
+      maxTokens: 8192,
+    });
+    raw = res.content
+      .map((chunk) => ("text" in chunk ? chunk.text : ""))
+      .join("")
+      .trim();
   } catch (e) {
     const message = e instanceof Error ? e.message : "AI error";
     return NextResponse.json({ error: message }, { status: 502 });
   }
 
-  const structured = parsePlanJson(raw);
-  const planMarkdown = structured
-    ? `# Trip plan\n\n## In-flight\n${structured.flightPlan.melatoninOnFlight}\n\n## Arrival day\n${structured.arrivalDay.immediateActions}\n\n## Daily\n${structured.dailyPlans.map((d) => `Day ${d.dayNumber}: ${d.notes}`).join("\n")}`
+  let structured = extractJsonObject(raw);
+  if (!structured) {
+    structured = { raw, executiveSummary: raw.slice(0, 500) };
+  }
+
+  structured.serverMeta = {
+    travelReadinessScore: travelReadiness.score,
+    travelReadinessBand: travelReadiness.band,
+    chronotype,
+    travelDirection,
+    baselineHrv7d: hrv7,
+    readinessToday,
+    avgSleepHours14d: avgSleepHours,
+  };
+
+  if (structured.sleepBanking && avgSleepHours != null) {
+    structured.sleepBanking = {
+      ...structured.sleepBanking,
+      narrative: `${structured.sleepBanking.narrative} (Oura 14-night average in bed/sleep duration: ~${avgSleepHours.toFixed(2)} h.)`,
+    };
+  }
+
+  const planMarkdown = structured.executiveSummary
+    ? `# Trip plan\n\n${structured.executiveSummary}\n\n## Performance\n${structured.performanceFraming ?? ""}`
     : raw;
 
   const tripMeta = {
@@ -123,9 +220,18 @@ Trip facts: depart ${departureDate} ${departureTime}, ${flightDuration}h flight,
     departureTime,
     flightDuration,
     returnDate,
+    airline,
+    flightNumber,
+    firstCommitment,
     originTz,
     destTz,
     offsetHours,
+    travelDirection,
+    chronotype,
+    travelReadinessScore: travelReadiness.score,
+    travelReadinessBand: travelReadiness.band,
+    landingDateDest,
+    recoveryCheckIns: [] as Array<{ date: string; readiness?: number; hrv?: number; note?: string }>,
   };
 
   await db.insert(timezonePlans).values({
@@ -135,15 +241,16 @@ Trip facts: depart ${departureDate} ${departureTime}, ${flightDuration}h flight,
     offsetHours,
     planMarkdown,
     tripMeta,
-    structuredPlan: structured ?? { raw },
-    lightExposureTimes: structured?.dailyPlans ?? null,
+    structuredPlan: structured,
+    lightExposureTimes: structured.dailyPlans ?? null,
   });
 
   return NextResponse.json({
     planMarkdown,
-    structuredPlan: structured ?? { raw },
+    structuredPlan: structured,
     tripMeta,
     offsetHours,
+    travelReadiness,
   });
 }
 

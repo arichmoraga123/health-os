@@ -10,6 +10,7 @@ import { dateKeyInTimeZone } from "@/lib/dates";
 import type { DailySnapshotRow } from "@/lib/health";
 import { formatBedtimeRange, pickTodayRow, prevRow } from "@/lib/health";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { TripRecoveryWidget } from "@/components/trip-recovery-widget";
 
 const RANGES = [7, 14, 30, 90] as const;
 
@@ -242,6 +243,8 @@ export function DashboardClient({
       <ErrorBoundary>
         <div className="space-y-6">
           <DailyBriefCard dateKey={todayKey} initial={briefProps} />
+
+          <TripRecoveryWidget />
 
           <section className="rounded-[var(--radius-card)] border border-[var(--border)] bg-gradient-to-r from-[var(--ready)]/15 to-transparent px-6 py-4 text-[14px] text-white">
             {recoveryMsg}
