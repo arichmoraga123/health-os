@@ -12,7 +12,9 @@ function buildUrl(path: string, searchParams?: Record<string, string>) {
 }
 
 export async function ouraFetch(path: string, token: string, searchParams?: Record<string, string>) {
-  const response = await fetch(buildUrl(path, searchParams), {
+  const url = buildUrl(path, searchParams);
+  console.log("[ouraFetch] URL", url);
+  const response = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });

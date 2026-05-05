@@ -41,6 +41,7 @@ export async function POST(request: Request) {
       .from(dailySnapshots)
       .where(gte(dailySnapshots.date, dateKey(subDays(new Date(), 30))))
       .limit(30);
+    const recent = [...snapshots].slice(-7);
     const journals = await db
       .select()
       .from(journalEntries)
@@ -59,16 +60,42 @@ export async function POST(request: Request) {
       .where(eq(challengeParticipants.userId, auth.userId))
       .limit(20);
 
-    const tags = snapshots.flatMap((s) => (Array.isArray(s.tags) ? s.tags : []));
-    const systemPrompt = `You are an elite performance coach and sleep scientist with access to the user's complete Oura biometric data. You have expertise in sleep science, HRV, circadian biology, stress physiology, and athletic performance. Be specific, reference actual numbers from their data, give actionable advice. Keep responses under 150 words unless asked for detail. Never be vague.
+    const tags = recent.flatMap((s) => (Array.isArray(s.tags) ? s.tags : [])).slice(0, 15);
+    const avg = (vals: Array<number | null | undefined>) => {
+      const present = vals.filter((v): v is number => v != null);
+      if (!present.length) return null;
+      return Math.round(present.reduce((a, b) => a + b, 0) / present.length);
+    };
+    const summary = {
+      timezone: user?.currentTimezone ?? user?.homeTimezone ?? "UTC",
+      days: recent.length,
+      averages: {
+        sleepScore: avg(recent.map((s) => s.sleepScore)),
+        readinessScore: avg(recent.map((s) => s.readinessScore)),
+        hrv: avg(recent.map((s) => s.hrv)),
+        steps: avg(recent.map((s) => s.steps)),
+      },
+      daily: recent.map((s) => ({
+        date: s.date,
+        sleepScore: s.sleepScore,
+        readinessScore: s.readinessScore,
+        hrv: s.hrv,
+        steps: s.steps,
+      })),
+      tags,
+      journalHighlights: journals.slice(0, 3).map((j) => ({
+        date: j.date,
+        entry: j.entry ? String(j.entry).slice(0, 160) : null,
+      })),
+      hasTripPlan: !!tripPlan,
+      challengeCount: challengeProgress.length,
+    };
+    const systemPrompt = `You are an elite performance coach and sleep scientist.
+Use only provided numbers. Be specific and actionable.
+Keep responses under 150 words unless asked for detail.
 
-Context:
-timezone=${user?.currentTimezone ?? user?.homeTimezone ?? "UTC"}
-snapshots_30d=${JSON.stringify(snapshots)}
-journals_recent=${JSON.stringify(journals)}
-oura_tags=${JSON.stringify(tags)}
-trip_plan=${JSON.stringify(tripPlan)}
-community_challenges=${JSON.stringify(challengeProgress)}`;
+Health summary (last 7 days):
+${JSON.stringify(summary)}`;
     const conversationMessages = (Array.isArray(messages) ? messages : []).map(
       (m: { role?: string; content?: string }) => ({
         role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),

@@ -143,11 +143,19 @@ export function mergeOuraDaily(
       });
     }
 
+    const deepSleep = num(ds?.deep_sleep_duration) ?? num(s?.deep_sleep_duration);
+    console.log("[oura-sync] deepSleep assignment", {
+      date,
+      deepSleep,
+      detailedType: ds?.type ?? null,
+      detailedDeepSleep: ds?.deep_sleep_duration ?? null,
+    });
+
     return {
       date,
       sleepScore: num(s?.score),
       sleepDuration: num(ds?.total_sleep_duration) ?? num(s?.total_sleep_duration),
-      deepSleep: num(ds?.deep_sleep_duration) ?? num(s?.deep_sleep_duration),
+      deepSleep,
       remSleep: num(ds?.rem_sleep_duration) ?? num(s?.rem_sleep_duration),
       lightSleep: num(ds?.light_sleep_duration) ?? num(s?.light_sleep_duration),
       awakeTime: num(ds?.awake_time),
