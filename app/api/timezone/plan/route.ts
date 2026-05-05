@@ -9,6 +9,7 @@ import { resolveCityTimeZone } from "@/lib/city-tz";
 import { landingDateKeyInDestination } from "@/lib/trip-dates";
 import { getSnapshotsAsc, getUserById } from "@/lib/health";
 import type { Phase5StructuredPlan } from "@/lib/trip-plan-types";
+import { normalizeStructuredPlan, parseClaudeTripPlanPayload } from "@/lib/trip-plan-normalize";
 import {
   avgBedtimeWakeMinutes,
   computeTravelReadiness,
@@ -16,19 +17,6 @@ import {
   detectChronotype,
   hrv7DayAverage,
 } from "@/lib/trip-metrics";
-
-function extractJsonObject(text: string): Phase5StructuredPlan | null {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const body = (fenced?.[1] ?? text).trim();
-  const start = body.indexOf("{");
-  const end = body.lastIndexOf("}");
-  if (start === -1 || end <= start) return null;
-  try {
-    return JSON.parse(body.slice(start, end + 1)) as Phase5StructuredPlan;
-  } catch {
-    return null;
-  }
-}
 
 export async function POST(request: Request) {
   const auth = await requireApiUser();
@@ -187,10 +175,7 @@ ${jsonShape}`;
     return NextResponse.json({ error: message }, { status: 502 });
   }
 
-  let structured = extractJsonObject(raw);
-  if (!structured) {
-    structured = { raw, executiveSummary: raw.slice(0, 500) };
-  }
+  let structured = parseClaudeTripPlanPayload(raw);
 
   structured.serverMeta = {
     travelReadinessScore: travelReadiness.score,
@@ -208,6 +193,8 @@ ${jsonShape}`;
       narrative: `${structured.sleepBanking.narrative} (Oura 14-night average in bed/sleep duration: ~${avgSleepHours.toFixed(2)} h.)`,
     };
   }
+
+  structured = normalizeStructuredPlan(structured);
 
   const planMarkdown = structured.executiveSummary
     ? `# Trip plan\n\n${structured.executiveSummary}\n\n## Performance\n${structured.performanceFraming ?? ""}`
@@ -234,18 +221,22 @@ ${jsonShape}`;
     recoveryCheckIns: [] as Array<{ date: string; readiness?: number; hrv?: number; note?: string }>,
   };
 
-  await db.insert(timezonePlans).values({
-    userId: auth.userId,
-    homeTz: originTz,
-    currentTz: destTz,
-    offsetHours,
-    planMarkdown,
-    tripMeta,
-    structuredPlan: structured,
-    lightExposureTimes: structured.dailyPlans ?? null,
-  });
+  const [inserted] = await db
+    .insert(timezonePlans)
+    .values({
+      userId: auth.userId,
+      homeTz: originTz,
+      currentTz: destTz,
+      offsetHours,
+      planMarkdown,
+      tripMeta,
+      structuredPlan: structured,
+      lightExposureTimes: structured.dailyPlans ?? null,
+    })
+    .returning({ id: timezonePlans.id });
 
   return NextResponse.json({
+    id: inserted?.id,
     planMarkdown,
     structuredPlan: structured,
     tripMeta,
@@ -263,5 +254,16 @@ export async function GET() {
     .where(eq(timezonePlans.userId, auth.userId))
     .orderBy(desc(timezonePlans.generatedAt))
     .limit(1);
-  return NextResponse.json(row ?? null);
+  if (!row) return NextResponse.json(null);
+  return NextResponse.json({
+    ...row,
+    structuredPlan: normalizeStructuredPlan(row.structuredPlan),
+  });
+}
+
+export async function DELETE() {
+  const auth = await requireApiUser();
+  if ("error" in auth) return auth.error;
+  await db.delete(timezonePlans).where(eq(timezonePlans.userId, auth.userId));
+  return NextResponse.json({ ok: true });
 }

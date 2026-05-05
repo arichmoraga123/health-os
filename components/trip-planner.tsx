@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { formatDateTimeInZone } from "@/lib/dates";
+import { normalizeStructuredPlan, stripCodeFences } from "@/lib/trip-plan-normalize";
 import type { Phase5StructuredPlan, FlightTimelineSegment } from "@/lib/trip-plan-types";
 
 type Baseline = {
@@ -32,6 +33,7 @@ type TripMeta = {
 };
 
 type Plan = {
+  id?: string;
   planMarkdown?: string;
   offsetHours?: number;
   tripMeta?: TripMeta;
@@ -120,6 +122,7 @@ export function TripPlanner() {
   const [checkInBusy, setCheckInBusy] = useState(false);
   const [hintOriginTz, setHintOriginTz] = useState<string | null>(null);
   const [hintDestTz, setHintDestTz] = useState<string | null>(null);
+  const [clearBusy, setClearBusy] = useState(false);
 
   const loadBaseline = useCallback(() => {
     fetch("/api/timezone/baseline")
@@ -147,10 +150,11 @@ export function TripPlanner() {
   useEffect(() => {
     fetch("/api/timezone/plan")
       .then((r) => r.json())
-      .then((d) => {
-        if (d && d.id && d.structuredPlan) {
+      .then((d: Record<string, unknown>) => {
+        if (d && typeof d.id === "string") {
           setPlan({
-            structuredPlan: d.structuredPlan as Phase5StructuredPlan,
+            id: d.id,
+            structuredPlan: normalizeStructuredPlan(d.structuredPlan),
             tripMeta: d.tripMeta as TripMeta,
             offsetHours: d.offsetHours as number,
             planMarkdown: d.planMarkdown as string,
@@ -216,7 +220,12 @@ export function TripPlanner() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to generate plan");
-      setPlan(data);
+      setPlan({
+        ...data,
+        id: data.id as string | undefined,
+        structuredPlan: normalizeStructuredPlan(data.structuredPlan),
+        tripMeta: data.tripMeta as TripMeta,
+      });
       if (data.travelReadiness) {
         setBaseline((b) =>
           b
@@ -264,7 +273,34 @@ export function TripPlanner() {
     }
   }
 
-  const s = plan?.structuredPlan;
+  async function clearTrip() {
+    if (!plan?.id) return;
+    if (!window.confirm("Clear this trip plan from your account? Recovery tracking for this itinerary will be removed.")) {
+      return;
+    }
+    setClearBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/timezone/plan", { method: "DELETE" });
+      if (!res.ok) throw new Error("Could not clear trip");
+      setPlan(null);
+      loadRecovery();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Clear failed");
+    } finally {
+      setClearBusy(false);
+    }
+  }
+
+  const structuredPlan = useMemo(() => normalizeStructuredPlan(plan?.structuredPlan), [plan?.structuredPlan]);
+
+  useEffect(() => {
+    if (structuredPlan && plan?.id) {
+      console.log("structuredPlan", structuredPlan);
+    }
+  }, [structuredPlan, plan?.id]);
+
+  const s = structuredPlan;
   const meta = plan?.tripMeta;
   const originTz = hintOriginTz ?? meta?.originTz ?? "UTC";
   const destTz = hintDestTz ?? meta?.destTz ?? "UTC";
@@ -515,7 +551,7 @@ export function TripPlanner() {
         </button>
       </section>
 
-      {s ? (
+      {plan?.id && plan?.tripMeta ? (
         <>
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-4 md:px-6">
             <p className="text-center text-[11px] uppercase tracking-[0.2em] text-[var(--text-muted)]">
@@ -527,6 +563,16 @@ export function TripPlanner() {
                 Landing date ({destTz}): {meta.landingDateDest}
               </p>
             ) : null}
+            <div className="mt-4 flex justify-center">
+              <button
+                type="button"
+                onClick={clearTrip}
+                disabled={clearBusy}
+                className="btn btn-outline !px-4 !py-2 !text-[11px] uppercase tracking-wider disabled:opacity-50"
+              >
+                {clearBusy ? "Clearing…" : "Clear trip"}
+              </button>
+            </div>
           </div>
 
           <div className="flex flex-wrap justify-center gap-2 border-b border-[var(--border)] pb-1">
@@ -571,7 +617,9 @@ export function TripPlanner() {
               {s.executiveSummary ? (
                 <div className="panel p-6 md:p-8">
                   <h3 className="heading-font text-2xl text-white">Executive summary</h3>
-                  <p className="mt-3 text-[14px] leading-relaxed text-[var(--text-secondary)]">{s.executiveSummary}</p>
+                  <p className="mt-3 text-[14px] leading-relaxed text-[var(--text-secondary)]">
+                    {stripCodeFences(String(s.executiveSummary))}
+                  </p>
                 </div>
               ) : null}
 
