@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { formatDateTimeInZone } from "@/lib/dates";
-import { normalizeStructuredPlan, stripCodeFences } from "@/lib/trip-plan-normalize";
+import { normalizeStructuredPlan } from "@/lib/trip-plan-normalize";
 import type { Phase5StructuredPlan, FlightTimelineSegment } from "@/lib/trip-plan-types";
 
 type Baseline = {
@@ -88,6 +88,68 @@ function segmentIcon(seg: FlightTimelineSegment) {
   if (seg.phase === "awake") return "🟡";
   if (seg.phase === "wind_down") return "🔵";
   return "";
+}
+
+function cleanSummary(text: string) {
+  return text
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .replace(/^\s*\{[\s\S]*"executiveSummary":\s*"/, "")
+    .replace(/",?\s*\}?\s*$/, "")
+    .trim();
+}
+
+function normalizeTravelDir(label: string): "eastward" | "westward" | "other" {
+  const t = label.toLowerCase();
+  if (t.includes("east")) return "eastward";
+  if (t.includes("west")) return "westward";
+  return "other";
+}
+
+function fallbackDirectionBullets(dir: "eastward" | "westward" | "other"): string[] {
+  if (dir === "eastward") {
+    return [
+      "Eastward travel compresses the day — advance sleep and wake when possible before departure.",
+      "At destination, prioritize bright outdoor light in the morning; dim screens and room light after ~8 PM local the first nights.",
+      "Melatonin is typically aligned to destination evening (often starting a few nights pre-shift for large jumps — follow your clinician).",
+      "Hold local wake time on arrival days even if tired; avoid long late naps that steal pressure from night sleep.",
+    ];
+  }
+  if (dir === "westward") {
+    return [
+      "Westward travel stretches the day — delay sleep timing slightly before departure when practical.",
+      "Seek late-afternoon and evening outdoor light at destination to anchor the delay; avoid bright light very late if it steals from night sleep.",
+      "Reserve melatonin for destination-evening positioning; do not use caffeine to push through deep local evening fatigue.",
+      "Keep naps short or skip them so the main sleep bout carries the circadian delay.",
+    ];
+  }
+  return [
+    "Small zone shifts: keep sleep, caffeine, and outdoor light anchors consistent for 48 hours, then align fully to destination.",
+    "Morning light after wake and a predictable wind-down block before target bedtime still speed adaptation.",
+  ];
+}
+
+function chronotypeFallbackNarrative(ct: string, dir: "eastward" | "westward" | "other"): string {
+  const label = chronotypeLabel(ct);
+  if (dir === "eastward") {
+    if (ct === "early_riser") {
+      return `${label} Eastward asks your clock to move earlier; your natural early anchor can make that advance easier than for late types. Still shift bed/wake in 15–30 minute steps and lock morning light at destination.`;
+    }
+    if (ct === "night_owl") {
+      return `${label} Eastward is the hardest pattern for late chronotypes. Run the pre-departure advance strictly (earlier bed, earlier bright light, earlier caffeine cutoff) for several nights — do not rely on willpower alone after landing.`;
+    }
+    return `${label} Advance sleep and light anchors gradually, emphasize morning phototherapy after arrival, and protect a dark wind-down before destination bedtime.`;
+  }
+  if (dir === "westward") {
+    if (ct === "night_owl") {
+      return `${label} Westward delay often fits evening types more naturally. Still cap caffeine by mid-afternoon local and use sunset-era outdoor light to reinforce the delay without stealing from night sleep.`;
+    }
+    if (ct === "early_riser") {
+      return `${label} Westward delays can feel sluggish at destination dawn — get light soon after local wake and keep bedtime modestly later than home until the clock catches up.`;
+    }
+    return `${label} Delay tactics (evening light, slightly later bed/wake) align with westward travel; keep naps minimal so night sleep carries the shift.`;
+  }
+  return `${label} Match sleep windows and light exposure to destination as soon as practical; keep caffeine early and preserve a full dark period before target sleep.`;
 }
 
 export function TripPlanner() {
@@ -313,6 +375,28 @@ export function TripPlanner() {
 
   const chronotype = s?.serverMeta?.chronotype ?? baseline?.chronotype ?? "intermediate";
   const directionLabel = meta?.travelDirection ?? s?.serverMeta?.travelDirection ?? "—";
+
+  const travelDir = useMemo(() => normalizeTravelDir(directionLabel), [directionLabel]);
+
+  const directionBullets = useMemo(() => {
+    const raw = s.directionScience?.bullets;
+    if (Array.isArray(raw) && raw.length > 0) {
+      const cleaned = raw.map((b) => String(b).trim()).filter(Boolean);
+      if (cleaned.length) return cleaned;
+    }
+    return fallbackDirectionBullets(travelDir);
+  }, [s.directionScience?.bullets, travelDir]);
+
+  const chronotypeBodyText = useMemo(() => {
+    const adv = s.chronotypeAdvice?.trim();
+    if (adv) return adv;
+    return chronotypeFallbackNarrative(chronotype, travelDir);
+  }, [s.chronotypeAdvice, chronotype, travelDir]);
+
+  const executiveSummaryClean = useMemo(() => {
+    if (s.executiveSummary == null || String(s.executiveSummary).trim() === "") return "";
+    return cleanSummary(String(s.executiveSummary));
+  }, [s.executiveSummary]);
 
   const flightH = meta?.flightDuration ?? flightDuration;
   const segments = s?.flightTimeline?.segments ?? [];
@@ -600,25 +684,29 @@ export function TripPlanner() {
                     <RingGlyph className="text-[var(--ready)]" />
                     Chronotype protocol
                   </p>
-                  <p className="mt-3 text-[14px] leading-relaxed text-[var(--text-secondary)]">
-                    {s.chronotypeAdvice ?? `Detected chronotype: ${chronotypeLabel(chronotype)}. Generate a fresh plan for tailored copy.`}
-                  </p>
+                  <p className="mt-3 text-[14px] leading-relaxed text-[var(--text-secondary)]">{chronotypeBodyText}</p>
                 </div>
                 <div className="panel p-6">
                   <p className="label-caps">Direction science</p>
+                  {(s.directionScience?.direction || directionLabel !== "—") ? (
+                    <p className="mt-2 text-[12px] text-[var(--text-muted)]">
+                      {s.directionScience?.direction ? String(s.directionScience.direction) : directionLabel}
+                    </p>
+                  ) : null}
                   <ul className="mt-3 list-disc space-y-2 pl-5 text-[13px] text-[var(--text-secondary)]">
-                    {(s.directionScience?.bullets ?? []).map((b, i) => (
+                    {directionBullets.map((b, i) => (
                       <li key={i}>{b}</li>
                     ))}
                   </ul>
                 </div>
               </div>
 
-              {s.executiveSummary ? (
+              {String(s.executiveSummary ?? "").trim() ? (
                 <div className="panel p-6 md:p-8">
                   <h3 className="heading-font text-2xl text-white">Executive summary</h3>
                   <p className="mt-3 text-[14px] leading-relaxed text-[var(--text-secondary)]">
-                    {stripCodeFences(String(s.executiveSummary))}
+                    {executiveSummaryClean ||
+                      "We could not extract readable summary text from this saved plan. Clear trip and generate a new plan."}
                   </p>
                 </div>
               ) : null}
