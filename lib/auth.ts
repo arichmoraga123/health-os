@@ -5,7 +5,14 @@ import { db } from "@/db/client";
 import { users } from "@/db/schema";
 
 export const authOptions: NextAuthOptions = {
-  session: { strategy: "jwt" },
+  session: {
+    strategy: "jwt",
+    maxAge: 30 * 24 * 60 * 60, // 30 days
+    updateAge: 24 * 60 * 60, // refresh session age daily
+  },
+  jwt: {
+    maxAge: 30 * 24 * 60 * 60, // keep JWT valid for 30 days
+  },
   providers: [
     CredentialsProvider({
       name: "credentials",
