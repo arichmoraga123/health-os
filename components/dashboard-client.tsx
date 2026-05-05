@@ -44,7 +44,10 @@ export function DashboardClient({
 
   const loadRange = useCallback(
     async (days: (typeof RANGES)[number]) => {
-      const res = await fetch(`/api/health/snapshots?days=${days}&timeZone=${encodeURIComponent(tz)}`);
+      const res = await fetch(
+        `/api/health/snapshots?days=${days}&timeZone=${encodeURIComponent(tz)}&t=${Date.now()}`,
+        { cache: "no-store" },
+      );
       const json = await res.json();
       if (res.ok && json.data) setSnapshots(json.data);
     },
@@ -54,7 +57,10 @@ export function DashboardClient({
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const res = await fetch(`/api/health/snapshots?days=${range}&timeZone=${encodeURIComponent(tz)}`);
+      const res = await fetch(
+        `/api/health/snapshots?days=${range}&timeZone=${encodeURIComponent(tz)}&t=${Date.now()}`,
+        { cache: "no-store" },
+      );
       const json = await res.json();
       if (!cancelled && res.ok && json.data) setSnapshots(json.data);
     })();
@@ -66,6 +72,15 @@ export function DashboardClient({
   const todayKey = useMemo(() => dateKeyInTimeZone(new Date(), tz), [tz]);
   const { row: todayRow, isFallback } = pickTodayRow(snapshots, tz);
   const yesterday = todayRow ? prevRow(snapshots, todayRow.date) : undefined;
+  const sleepRow = useMemo(() => {
+    const hasSleep = (s: DailySnapshotRow | undefined) =>
+      !!s && [s.deepSleep, s.remSleep, s.lightSleep].some((v) => v != null && v > 0);
+    if (hasSleep(todayRow)) return todayRow;
+    if (hasSleep(yesterday)) return yesterday;
+    return [...snapshots]
+      .reverse()
+      .find((s) => hasSleep(s));
+  }, [todayRow, yesterday, snapshots]);
 
   useEffect(() => {
     if (!todayRow) return;
@@ -278,13 +293,18 @@ export function DashboardClient({
           <section className="grid gap-6 lg:grid-cols-2">
             <div className="panel p-6 md:p-8">
               <p className="label-caps mb-4">Sleep stages</p>
-              <SleepStageBar deep={todayRow?.deepSleep} rem={todayRow?.remSleep} light={todayRow?.lightSleep} />
+              <SleepStageBar deep={sleepRow?.deepSleep} rem={sleepRow?.remSleep} light={sleepRow?.lightSleep} />
+              {sleepRow?.date && sleepRow.date !== todayRow?.date ? (
+                <p className="mt-2 text-[11px] text-[var(--text-muted)]">
+                  Showing most recent sleep stage data from {sleepRow.date}
+                </p>
+              ) : null}
               <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {[
-                  ["Efficiency", todayRow?.efficiency != null ? `${todayRow.efficiency}%` : "—"],
-                  ["Latency", todayRow?.latency != null ? `${Math.round(todayRow.latency)}m` : "—"],
-                  ["Restfulness", todayRow?.restfulness ?? "—"],
-                  ["Timing", todayRow?.timing ?? "—"],
+                  ["Efficiency", sleepRow?.efficiency != null ? `${sleepRow.efficiency}%` : "—"],
+                  ["Latency", sleepRow?.latency != null ? `${Math.round(sleepRow.latency)}m` : "—"],
+                  ["Restfulness", sleepRow?.restfulness ?? "—"],
+                  ["Timing", sleepRow?.timing ?? "—"],
                 ].map(([k, v]) => (
                   <div key={k} className="rounded-xl border border-[var(--border)] bg-white/[0.03] p-3">
                     <p className="label-caps">{k}</p>
