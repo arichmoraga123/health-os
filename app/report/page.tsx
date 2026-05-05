@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { AppShell } from "@/components/app-shell";
 import { LineChart } from "@/components/charts";
 import { getSnapshotsAsc } from "@/lib/health";

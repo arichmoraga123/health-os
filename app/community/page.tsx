@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { AppShell } from "@/components/app-shell";
 import { CommunityActions } from "@/components/community-actions";
 import { requireSession } from "@/lib/session";

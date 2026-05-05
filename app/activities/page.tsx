@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { AppShell } from "@/components/app-shell";
 import { HorizontalBarChart } from "@/components/charts";
 import { activityEmoji, intensityBadgeClass, workoutDurationMinutes } from "@/lib/activity-icons";

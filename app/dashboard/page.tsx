@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { Suspense } from "react";
 import { DashboardClient } from "@/components/dashboard-client";
 import { DashboardSkeleton } from "@/components/dashboard-skeleton";

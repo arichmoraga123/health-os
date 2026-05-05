@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { AppShell } from "@/components/app-shell";
 import { getRecentJournal, getSnapshots } from "@/lib/health";
 import { requireSession } from "@/lib/session";
