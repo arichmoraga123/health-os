@@ -21,6 +21,7 @@ const mobileMain = [
   ["/dashboard", "Home"],
   ["/activities", "Train"],
   ["/report", "Report"],
+  ["/predictions", "Predict"],
   ["/calendar", "Cal"],
   ["/community", "Crew"],
 ] as const;

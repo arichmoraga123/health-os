@@ -116,6 +116,19 @@ export default function AICoachPage() {
         messages: next.map((m) => ({ role: m.role, content: m.content })),
       }),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      setTyping(false);
+      setMessages((m) => [
+        ...m,
+        {
+          role: "assistant",
+          content: `AI error: ${String(err.error ?? `HTTP ${res.status}`)}`,
+          ts: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+        },
+      ]);
+      return;
+    }
     if (!res.body) {
       setTyping(false);
       return;

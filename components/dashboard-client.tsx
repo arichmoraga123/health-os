@@ -67,6 +67,22 @@ export function DashboardClient({
   const { row: todayRow, isFallback } = pickTodayRow(snapshots, tz);
   const yesterday = todayRow ? prevRow(snapshots, todayRow.date) : undefined;
 
+  useEffect(() => {
+    if (!todayRow) return;
+    console.log("Dashboard DB snapshot debug", {
+      date: todayRow.date,
+      sleepDuration: todayRow.sleepDuration,
+      deepSleep: todayRow.deepSleep,
+      remSleep: todayRow.remSleep,
+      lightSleep: todayRow.lightSleep,
+      awakeTime: todayRow.awakeTime,
+      efficiency: todayRow.efficiency,
+      latency: todayRow.latency,
+      sleepPhase5Min: todayRow.sleepPhase5Min,
+      hrv5Min: todayRow.hrv5Min,
+    });
+  }, [todayRow]);
+
   async function syncNow() {
     setSyncing(true);
     try {
@@ -233,7 +249,7 @@ export function DashboardClient({
               <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {[
                   ["Efficiency", todayRow?.efficiency != null ? `${todayRow.efficiency}%` : "—"],
-                  ["Latency", todayRow?.latency != null ? `${Math.round(todayRow.latency / 60)}m` : "—"],
+                  ["Latency", todayRow?.latency != null ? `${Math.round(todayRow.latency)}m` : "—"],
                   ["Restfulness", todayRow?.restfulness ?? "—"],
                   ["Timing", todayRow?.timing ?? "—"],
                 ].map(([k, v]) => (
