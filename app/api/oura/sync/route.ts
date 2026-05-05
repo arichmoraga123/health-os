@@ -102,7 +102,7 @@ export async function POST(req: Request) {
   const auth = await requireApiUser();
   if ("error" in auth) return auth.error;
 
-  let body: { days?: number; timeZone?: string };
+  let body: { days?: number; timeZone?: string; reset?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -114,6 +114,11 @@ export async function POST(req: Request) {
 
   if (body.timeZone && user) {
     await db.update(users).set({ currentTimezone: body.timeZone }).where(eq(users.id, user.id));
+  }
+
+  if (body.reset) {
+    console.log("[sync] reset requested, deleting existing user snapshots", { userId: auth.userId });
+    await db.delete(dailySnapshots).where(eq(dailySnapshots.userId, auth.userId));
   }
 
   const { start, end } = rangeStartEnd(days, timeZone);

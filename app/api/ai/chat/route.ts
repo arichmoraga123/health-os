@@ -10,7 +10,7 @@ import {
   users,
 } from "@/db/schema";
 import { authOptions } from "@/lib/auth";
-import { streamClaude } from "@/lib/ai";
+import { createClaudeMessage } from "@/lib/ai";
 import { requireApiUser } from "@/lib/api-auth";
 import { dateKey } from "@/lib/utils";
 import { getServerSession } from "next-auth";
@@ -60,8 +60,7 @@ export async function POST(request: Request) {
       .limit(20);
 
     const tags = snapshots.flatMap((s) => (Array.isArray(s.tags) ? s.tags : []));
-    const prompt = `System:
-You are an elite performance coach and sleep scientist with access to the user's complete Oura biometric data. You have expertise in sleep science, HRV, circadian biology, stress physiology, and athletic performance. Be specific, reference actual numbers from their data, give actionable advice. Keep responses under 150 words unless asked for detail. Never be vague.
+    const systemPrompt = `You are an elite performance coach and sleep scientist with access to the user's complete Oura biometric data. You have expertise in sleep science, HRV, circadian biology, stress physiology, and athletic performance. Be specific, reference actual numbers from their data, give actionable advice. Keep responses under 150 words unless asked for detail. Never be vague.
 
 Context:
 timezone=${user?.currentTimezone ?? user?.homeTimezone ?? "UTC"}
@@ -69,48 +68,23 @@ snapshots_30d=${JSON.stringify(snapshots)}
 journals_recent=${JSON.stringify(journals)}
 oura_tags=${JSON.stringify(tags)}
 trip_plan=${JSON.stringify(tripPlan)}
-community_challenges=${JSON.stringify(challengeProgress)}
-
-Conversation:
-${JSON.stringify(messages)}`;
-    const encoder = new TextEncoder();
-    const modelMessages = [
-      { role: "user" as const, content: prompt },
-      ...((Array.isArray(messages) ? messages : []).map((m: { role?: string; content?: string }) => ({
-        role: m.role === "assistant" ? "assistant" : "user",
+community_challenges=${JSON.stringify(challengeProgress)}`;
+    const conversationMessages = (Array.isArray(messages) ? messages : []).map(
+      (m: { role?: string; content?: string }) => ({
+        role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
         content: String(m.content ?? ""),
-      })) as Array<{ role: "user" | "assistant"; content: string }>),
-    ];
-    const claudeStream = streamClaude(modelMessages);
-    const stream = new ReadableStream({
-      async start(controller) {
-        try {
-          let full = "";
-          for await (const event of claudeStream) {
-            const maybeText =
-              event.type === "content_block_delta" &&
-              "delta" in event &&
-              typeof (event.delta as { text?: unknown }).text === "string"
-                ? ((event.delta as { text?: string }).text ?? "")
-                : "";
-            const chunk = maybeText;
-            if (chunk) {
-              full += chunk;
-              controller.enqueue(encoder.encode(chunk));
-            }
-          }
-          if (!full) {
-            controller.enqueue(encoder.encode("No response generated."));
-          }
-          controller.close();
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : "Unknown stream error";
-          controller.enqueue(encoder.encode(`AI stream error: ${msg}`));
-          controller.close();
-        }
-      },
+      }),
+    );
+    const message = await createClaudeMessage({
+      system: systemPrompt,
+      maxTokens: 1024,
+      messages: conversationMessages,
     });
-    return new NextResponse(stream, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    const content = message.content
+      .map((c) => ("text" in c ? c.text : ""))
+      .join("")
+      .trim();
+    return Response.json({ content });
   } catch (e) {
     console.error("AI chat route error:", e);
     const message = e instanceof Error ? e.message : "AI chat route failed";

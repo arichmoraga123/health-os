@@ -129,37 +129,10 @@ export default function AICoachPage() {
       ]);
       return;
     }
-    if (!res.body) {
-      setTyping(false);
-      return;
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let pushed = false;
     const ts = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    setMessages((m) => [...m, { role: "assistant", content: "", ts }]);
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      partial += decoder.decode(value, { stream: true });
-      pushed = true;
-      setMessages((m) => {
-        const cloned = [...m];
-        const last = cloned[cloned.length - 1];
-        if (last?.role === "assistant") {
-          cloned[cloned.length - 1] = { ...last, content: partial };
-        }
-        return cloned;
-      });
-    }
-    if (!pushed) {
-      setMessages((m) => {
-        const cloned = [...m];
-        const last = cloned[cloned.length - 1];
-        if (last?.role === "assistant") cloned[cloned.length - 1] = { ...last, content: "No response generated." };
-        return cloned;
-      });
-    }
+    const data = await res.json().catch(() => ({}));
+    partial = String(data.content ?? "No response generated.");
+    setMessages((m) => [...m, { role: "assistant", content: partial, ts }]);
     setTyping(false);
     const finalMessages = [
       ...next,

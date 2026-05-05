@@ -111,6 +111,30 @@ export function DashboardClient({
     }
   }
 
+  async function resetAndResync() {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/oura/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ days: 30, timeZone: tz, reset: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data.error ?? "Reset & resync failed"));
+      await loadRange(30);
+      setRange(30);
+      const ts = new Date().toISOString();
+      localStorage.setItem("healthos_last_sync", ts);
+      setLastSync(ts);
+      setToast(data.message ?? "Reset & resync complete");
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Reset & resync failed");
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setToast(null), 2800);
+    }
+  }
+
   const labels = snapshots.map((s) => s.date.slice(5));
   const phaseSeries = Array.isArray(todayRow?.sleepPhase5Min)
     ? (todayRow?.sleepPhase5Min as unknown[])
@@ -165,6 +189,15 @@ export function DashboardClient({
             className="btn btn-primary !px-5 !py-2 !text-[12px] uppercase tracking-wide disabled:opacity-50"
           >
             {syncing ? "Syncing…" : "Sync now"}
+          </button>
+          <button
+            type="button"
+            onClick={resetAndResync}
+            disabled={syncing}
+            className="btn btn-outline !px-5 !py-2 !text-[12px] uppercase tracking-wide disabled:opacity-50"
+            title="Delete existing snapshots and re-sync last 30 days"
+          >
+            Reset & Resync
           </button>
           <div className="flex items-center gap-2 rounded-full border border-[var(--border)] bg-white/[0.04] px-3 py-2 text-[11px] text-[var(--text-secondary)]">
             <span className="relative flex size-2">

@@ -21,6 +21,19 @@ export async function askClaude(prompt: string) {
     .trim();
 }
 
+export async function createClaudeMessage(opts: {
+  system: string;
+  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  maxTokens?: number;
+}) {
+  return client.messages.create({
+    model: claudeModel,
+    max_tokens: opts.maxTokens ?? 1024,
+    system: opts.system,
+    messages: opts.messages.map((m) => ({ role: m.role, content: m.content })),
+  });
+}
+
 export function streamClaude(messages: Array<{ role: "user" | "assistant"; content: string }>) {
   return client.messages.stream({
     model: claudeModel,
