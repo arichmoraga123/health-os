@@ -166,3 +166,13 @@ export function formatDurationSeconds(sec: number | null | undefined): string {
   if (h <= 0) return `${mm}m`;
   return `${h}h ${mm}m`;
 }
+
+export function formatBedtimeRange(start: Date | string | null | undefined, end: Date | string | null | undefined) {
+  if (!start || !end) return "—";
+  const s = new Date(start);
+  const e = new Date(end);
+  return `${s.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} -> ${e.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  })}`;
+}

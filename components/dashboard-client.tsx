@@ -8,7 +8,7 @@ import { DashboardScoreCard } from "@/components/dashboard-score-card";
 import { SleepStageBar } from "@/components/sleep-stage-bar";
 import { dateKeyInTimeZone } from "@/lib/dates";
 import type { DailySnapshotRow } from "@/lib/health";
-import { pickTodayRow, prevRow } from "@/lib/health";
+import { formatBedtimeRange, pickTodayRow, prevRow } from "@/lib/health";
 import { ErrorBoundary } from "@/components/error-boundary";
 
 const RANGES = [7, 14, 30, 90] as const;
@@ -40,6 +40,7 @@ export function DashboardClient({
   const [lastSync, setLastSync] = useState<string | null>(() =>
     typeof window !== "undefined" ? localStorage.getItem("healthos_last_sync") : null,
   );
+  const [toast, setToast] = useState<string | null>(null);
 
   const loadRange = useCallback(
     async (days: (typeof RANGES)[number]) => {
@@ -78,14 +79,19 @@ export function DashboardClient({
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error ?? "Sync failed");
       }
+      const data = await res.json();
       await loadRange(range);
       const ts = new Date().toISOString();
       localStorage.setItem("healthos_last_sync", ts);
       setLastSync(ts);
+      setToast(data.message ?? "Sync complete");
     } catch (e) {
-      console.error(e);
+      const msg = e instanceof Error ? e.message : "Sync failed";
+      console.error(msg);
+      setToast(msg);
     } finally {
       setSyncing(false);
+      setTimeout(() => setToast(null), 2800);
     }
   }
 
@@ -158,6 +164,9 @@ export function DashboardClient({
         <section className="panel p-6 text-[13px] text-[var(--text-secondary)]">
           No Oura data yet. Click <span className="text-white">Sync now</span> to import your latest metrics.
         </section>
+      )}
+      {toast && (
+        <div className="mb-4 panel p-3 text-[12px] text-white">{toast}</div>
       )}
       {isFallback && todayRow ? (
         <p className="mb-4 rounded-[var(--radius-card)] border border-[var(--border)] bg-white/[0.03] px-4 py-3 text-[12px] text-[var(--text-secondary)]">
@@ -250,9 +259,7 @@ export function DashboardClient({
             <div className="panel p-6 md:p-8">
               <p className="label-caps mb-2">Bedtime / Wake</p>
               <p className="text-[13px] text-[var(--text-secondary)]">
-                {todayRow?.bedtimeStart ? new Date(todayRow.bedtimeStart).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—"}{" "}
-                →{" "}
-                {todayRow?.bedtimeEnd ? new Date(todayRow.bedtimeEnd).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—"}
+                {formatBedtimeRange(todayRow?.bedtimeStart, todayRow?.bedtimeEnd)}
               </p>
             </div>
             <div className="panel p-6 md:p-8">
@@ -356,6 +363,23 @@ export function DashboardClient({
                 Resilience: {todayRow?.resilienceLevel ?? "—"} (sleep {todayRow?.resilienceSleepRecovery ?? "—"}, day{" "}
                 {todayRow?.resilienceDaytimeRecovery ?? "—"}, balance {todayRow?.resilienceStressBalance ?? "—"})
               </p>
+              <div className="mt-3 space-y-1 text-[11px] text-[var(--text-muted)]">
+                <div>Readiness contributors:</div>
+                <div>
+                  HRV balance {todayRow?.hrvBalance ?? "—"} · Recovery index {todayRow?.recoveryIndex ?? "—"} · RHR{" "}
+                  {todayRow?.restingHeartRateScore ?? "—"} · Temp {todayRow?.bodyTemperatureScore ?? "—"}
+                </div>
+                <div>
+                  Activity balance {todayRow?.activityBalance ?? "—"} · Sleep balance {todayRow?.sleepBalance ?? "—"} · Prev day{" "}
+                  {todayRow?.previousDayActivity ?? "—"} · Prev night {todayRow?.previousNightScore ?? "—"}
+                </div>
+                <div>
+                  Activity contributors: stay active {todayRow?.stayActiveScore ?? "—"} · move hourly{" "}
+                  {todayRow?.moveEveryHourScore ?? "—"} · targets {todayRow?.meetDailyTargetsScore ?? "—"} · freq{" "}
+                  {todayRow?.trainingFrequencyScore ?? "—"} · volume {todayRow?.trainingVolumeScore ?? "—"} · recovery{" "}
+                  {todayRow?.recoveryTimeScore ?? "—"}
+                </div>
+              </div>
             </div>
           </section>
         </div>

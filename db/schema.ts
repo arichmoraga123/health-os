@@ -61,6 +61,20 @@ export const dailySnapshots = pgTable("daily_snapshots", {
   resilienceStressBalance: real("resilience_stress_balance"),
   optimalBedtimeStart: text("optimal_bedtime_start"),
   optimalBedtimeEnd: text("optimal_bedtime_end"),
+  hrvBalance: integer("hrv_balance"),
+  recoveryIndex: integer("recovery_index"),
+  restingHeartRateScore: integer("resting_heart_rate_score"),
+  bodyTemperatureScore: integer("body_temperature_score"),
+  activityBalance: integer("activity_balance"),
+  sleepBalance: integer("sleep_balance"),
+  previousDayActivity: integer("previous_day_activity"),
+  previousNightScore: integer("previous_night_score"),
+  stayActiveScore: integer("stay_active_score"),
+  moveEveryHourScore: integer("move_every_hour_score"),
+  meetDailyTargetsScore: integer("meet_daily_targets_score"),
+  trainingFrequencyScore: integer("training_frequency_score"),
+  trainingVolumeScore: integer("training_volume_score"),
+  recoveryTimeScore: integer("recovery_time_score"),
   tags: jsonb("tags"),
   sleepPhase5Min: jsonb("sleep_phase_5_min"),
   hrv5Min: jsonb("hrv_5_min"),
@@ -229,4 +243,16 @@ export const timezonePlans = pgTable("timezone_plans", {
   targetSleepTime: text("target_sleep_time"),
   targetWakeTime: text("target_wake_time"),
   generatedAt: timestamp("generated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const aiConversations = pgTable("ai_conversations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id")
+    .references(() => users.id, { onDelete: "cascade" })
+    .notNull(),
+  date: date("date").notNull(),
+  title: text("title"),
+  messages: jsonb("messages").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

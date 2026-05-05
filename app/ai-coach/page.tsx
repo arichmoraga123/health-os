@@ -9,6 +9,14 @@ type ChatMessage = {
   ts: string;
 };
 
+type Conversation = {
+  id: string;
+  date: string;
+  title: string | null;
+  messages: ChatMessage[];
+  updatedAt: string;
+};
+
 const quickPrompts = [
   "Why was my sleep low?",
   "When should I train?",
@@ -30,13 +38,63 @@ export default function AICoachPage() {
   const [typing, setTyping] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const initials = useMemo(() => "YU", []);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+
+  async function loadConversations() {
+    const res = await fetch("/api/ai/conversations");
+    const data = await res.json().catch(() => []);
+    if (Array.isArray(data)) {
+      setConversations(
+        data.map((c) => ({
+          id: c.id as string,
+          date: String(c.date ?? ""),
+          title: (c.title as string | null) ?? "New Chat",
+          messages: Array.isArray(c.messages) ? (c.messages as ChatMessage[]) : [],
+          updatedAt: String(c.updatedAt ?? c.createdAt ?? ""),
+        })),
+      );
+    }
+  }
 
   useEffect(() => {
+    void loadConversations();
     containerRef.current?.scrollTo({
       top: containerRef.current.scrollHeight,
       behavior: "smooth",
     });
   }, [messages, typing]);
+
+  async function createConversation(firstMessage?: string) {
+    const res = await fetch("/api/ai/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ firstMessage }),
+    });
+    const created = await res.json();
+    setConversationId(created.id as string);
+    await loadConversations();
+    return created.id as string;
+  }
+
+  async function saveConversation(nextMessages: ChatMessage[], forcedId?: string) {
+    const id = forcedId ?? conversationId ?? (await createConversation(nextMessages.find((m) => m.role === "user")?.content));
+    await fetch("/api/ai/conversations", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id,
+        title: nextMessages.find((m) => m.role === "user")?.content.slice(0, 50) ?? "New Chat",
+        messages: nextMessages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          timestamp: m.ts,
+        })),
+      }),
+    });
+    setConversationId(id);
+    await loadConversations();
+  }
 
   async function send(custom?: string) {
     const text = (custom ?? input).trim();
@@ -50,6 +108,7 @@ export default function AICoachPage() {
     setMessages(next);
     setInput("");
     setTyping(true);
+    let partial = "";
     const res = await fetch("/api/ai/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -57,16 +116,53 @@ export default function AICoachPage() {
         messages: next.map((m) => ({ role: m.role, content: m.content })),
       }),
     });
-    const reply = await res.text();
-    setMessages((m) => [
-      ...m,
-      {
-        role: "assistant",
-        content: reply,
-        ts: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
-      },
-    ]);
+    if (!res.body) {
+      setTyping(false);
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let pushed = false;
+    const ts = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    setMessages((m) => [...m, { role: "assistant", content: "", ts }]);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      partial += decoder.decode(value, { stream: true });
+      pushed = true;
+      setMessages((m) => {
+        const cloned = [...m];
+        const last = cloned[cloned.length - 1];
+        if (last?.role === "assistant") {
+          cloned[cloned.length - 1] = { ...last, content: partial };
+        }
+        return cloned;
+      });
+    }
+    if (!pushed) {
+      setMessages((m) => {
+        const cloned = [...m];
+        const last = cloned[cloned.length - 1];
+        if (last?.role === "assistant") cloned[cloned.length - 1] = { ...last, content: "No response generated." };
+        return cloned;
+      });
+    }
     setTyping(false);
+    const finalMessages = [
+      ...next,
+      { role: "assistant" as const, content: partial || "No response generated.", ts },
+    ];
+    await saveConversation(finalMessages);
+  }
+
+  function groupLabel(updatedAt: string) {
+    const d = new Date(updatedAt);
+    const now = new Date();
+    const diff = Math.floor((now.getTime() - d.getTime()) / 86400000);
+    if (diff <= 0) return "Today";
+    if (diff === 1) return "Yesterday";
+    if (diff < 7) return "This Week";
+    return "Earlier";
   }
 
   return (
@@ -78,6 +174,52 @@ export default function AICoachPage() {
           </button>
         ))}
       </section>
+      <section className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-3">
+        <aside className="panel p-3 h-[65vh] overflow-y-auto">
+          <button
+            type="button"
+            className="btn btn-primary w-full !min-w-0"
+            onClick={() => {
+              setConversationId(null);
+              setMessages([
+                {
+                  role: "assistant",
+                  content: "I am your Health OS coach. Ask me about recovery, training, sleep, stress, or travel.",
+                  ts: "now",
+                },
+              ]);
+            }}
+          >
+            New Chat
+          </button>
+          <div className="mt-3 space-y-3">
+            {["Today", "Yesterday", "This Week", "Earlier"].map((group) => {
+              const rows = conversations.filter((c) => groupLabel(c.updatedAt) === group);
+              if (!rows.length) return null;
+              return (
+                <div key={group}>
+                  <p className="label-caps mb-1">{group}</p>
+                  <div className="space-y-1">
+                    {rows.map((c) => (
+                      <button
+                        key={c.id}
+                        className={`w-full text-left btn btn-outline !min-w-0 !px-3 !py-2 ${
+                          conversationId === c.id ? "!text-white !border-white/40" : ""
+                        }`}
+                        onClick={() => {
+                          setConversationId(c.id);
+                          setMessages(c.messages.length ? c.messages : []);
+                        }}
+                      >
+                        {(c.title ?? "New Chat").slice(0, 50)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </aside>
       <section ref={containerRef} className="panel h-[65vh] overflow-y-auto p-4 space-y-4">
         {messages.map((m, idx) => (
           <div
@@ -118,6 +260,7 @@ export default function AICoachPage() {
             </div>
           </div>
         )}
+      </section>
       </section>
       <section className="mt-3 flex gap-2">
         <input

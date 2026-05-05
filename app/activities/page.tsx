@@ -47,6 +47,7 @@ export default async function ActivitiesPage() {
   const streak = activityStreak(snapshots);
   const caloriesWeek = thisWeek.reduce((a, s) => a + (s.activeCalories ?? 0), 0);
   const caloriesLast = lastWeek.reduce((a, s) => a + (s.activeCalories ?? 0), 0);
+  const fmt = (n: number | null | undefined, digits = 1) => (n == null ? "—" : Number(n).toFixed(digits).replace(/\.0$/, ""));
 
   const typeCount = new Map<string, number>();
   for (const w of workouts) {
@@ -76,7 +77,7 @@ export default async function ActivitiesPage() {
       <section className="grid gap-4 sm:grid-cols-3">
         <div className="panel p-6 md:p-8">
           <p className="label-caps">Workouts (7d)</p>
-          <p className="heading-font mt-2 text-6xl text-white">{workouts.length}</p>
+          <p className="heading-font mt-2 text-6xl text-white">{thisWeekWorkouts.length}</p>
         </div>
         <div className="panel p-6 md:p-8">
           <p className="label-caps">Active minutes</p>
@@ -84,7 +85,7 @@ export default async function ActivitiesPage() {
         </div>
         <div className="panel p-6 md:p-8">
           <p className="label-caps">Calories (7d)</p>
-          <p className="heading-font mt-2 text-6xl text-[var(--active)]">{caloriesWeek}</p>
+          <p className="heading-font mt-2 text-6xl text-[var(--active)]">{Math.round(caloriesWeek)}</p>
         </div>
       </section>
 
@@ -95,12 +96,12 @@ export default async function ActivitiesPage() {
             <div className="rounded-xl border border-[var(--border)] bg-white/[0.03] p-4">
               <p className="label-caps">This week</p>
               <p className="mt-2 text-2xl text-white">{Math.round(totalMinutes)} min</p>
-              <p className="text-[12px] text-[var(--text-muted)]">{caloriesWeek} kcal</p>
+              <p className="text-[12px] text-[var(--text-muted)]">{Math.round(caloriesWeek)} cal</p>
             </div>
             <div className="rounded-xl border border-[var(--border)] bg-white/[0.03] p-4">
               <p className="label-caps">Last week</p>
               <p className="mt-2 text-2xl text-[var(--text-secondary)]">{Math.round(lastMinutes)} min</p>
-              <p className="text-[12px] text-[var(--text-muted)]">{caloriesLast} kcal</p>
+              <p className="text-[12px] text-[var(--text-muted)]">{Math.round(caloriesLast)} cal</p>
             </div>
           </div>
         </div>
@@ -136,19 +137,29 @@ export default async function ActivitiesPage() {
                   <div>
                     <p className="text-lg font-semibold capitalize text-white">{w.activity}</p>
                     <p className="text-[12px] text-[var(--text-muted)]">
-                      {w.start_datetime ? new Date(w.start_datetime).toLocaleString() : "—"}
+                      {w.start_datetime
+                        ? new Date(w.start_datetime).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          }).replace(",", " ·")
+                        : "—"}
                     </p>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-3 text-[12px] text-[var(--text-secondary)]">
                   <span className="rounded-lg border border-[var(--border)] px-3 py-1">{mins} min</span>
                   <span className="rounded-lg border border-[var(--border)] px-3 py-1">
-                    Avg HR {w.average_heart_rate ?? "—"}
+                    {w.average_heart_rate == null ? <span className="text-[var(--text-muted)]">—</span> : `Avg HR ${Math.round(w.average_heart_rate)}`}
                   </span>
                   <span className="rounded-lg border border-[var(--border)] px-3 py-1">
-                    Max {w.max_heart_rate ?? "—"}
+                    {w.max_heart_rate == null ? <span className="text-[var(--text-muted)]">—</span> : `Max ${Math.round(w.max_heart_rate)}`}
                   </span>
-                  <span className="rounded-lg border border-[var(--border)] px-3 py-1">{w.calories ?? "—"} kcal</span>
+                  <span className="rounded-lg border border-[var(--border)] px-3 py-1">
+                    {w.calories == null ? <span className="text-[var(--text-muted)]">—</span> : `${Math.round(w.calories)} cal`}
+                  </span>
+                  <span className="rounded-lg border border-[var(--border)] px-3 py-1">{fmt(w.distance)} km</span>
                   <span className={`rounded-lg border px-3 py-1 capitalize ${badge}`}>{w.intensity}</span>
                 </div>
               </div>

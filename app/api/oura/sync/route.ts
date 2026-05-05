@@ -45,6 +45,29 @@ function toRow(userId: string, n: NormalizedSnapshot) {
     resilienceStressBalance: n.resilienceStressBalance,
     optimalBedtimeStart: n.optimalBedtimeStart,
     optimalBedtimeEnd: n.optimalBedtimeEnd,
+    hrvBalance: n.hrvBalance != null ? Math.round(n.hrvBalance) : null,
+    recoveryIndex: n.recoveryIndex != null ? Math.round(n.recoveryIndex) : null,
+    restingHeartRateScore:
+      n.restingHeartRateScore != null ? Math.round(n.restingHeartRateScore) : null,
+    bodyTemperatureScore:
+      n.bodyTemperatureScore != null ? Math.round(n.bodyTemperatureScore) : null,
+    activityBalance: n.activityBalance != null ? Math.round(n.activityBalance) : null,
+    sleepBalance: n.sleepBalance != null ? Math.round(n.sleepBalance) : null,
+    previousDayActivity:
+      n.previousDayActivity != null ? Math.round(n.previousDayActivity) : null,
+    previousNightScore:
+      n.previousNightScore != null ? Math.round(n.previousNightScore) : null,
+    stayActiveScore: n.stayActiveScore != null ? Math.round(n.stayActiveScore) : null,
+    moveEveryHourScore:
+      n.moveEveryHourScore != null ? Math.round(n.moveEveryHourScore) : null,
+    meetDailyTargetsScore:
+      n.meetDailyTargetsScore != null ? Math.round(n.meetDailyTargetsScore) : null,
+    trainingFrequencyScore:
+      n.trainingFrequencyScore != null ? Math.round(n.trainingFrequencyScore) : null,
+    trainingVolumeScore:
+      n.trainingVolumeScore != null ? Math.round(n.trainingVolumeScore) : null,
+    recoveryTimeScore:
+      n.recoveryTimeScore != null ? Math.round(n.recoveryTimeScore) : null,
     tags: n.tags as object | null,
     sleepPhase5Min: n.sleepPhase5Min as object | null,
     hrv5Min: n.hrv5Min as object | null,
@@ -92,6 +115,11 @@ export async function POST(req: Request) {
         ouraFetch("v2/usercollection/daily_readiness", user.ouraToken, params),
         ouraFetch("v2/usercollection/daily_activity", user.ouraToken, params),
       ]);
+      console.log("Oura sync raw daily payload sizes", {
+        sleep: Array.isArray(sleepRes?.data) ? sleepRes.data.length : 0,
+        readiness: Array.isArray(readinessRes?.data) ? readinessRes.data.length : 0,
+        activity: Array.isArray(activityRes?.data) ? activityRes.data.length : 0,
+      });
       const [
         sleepDetailedRes,
         heartRateRes,
@@ -173,6 +201,20 @@ export async function POST(req: Request) {
           resilienceStressBalance: null,
           optimalBedtimeStart: null,
           optimalBedtimeEnd: null,
+          hrvBalance: null,
+          recoveryIndex: null,
+          restingHeartRateScore: null,
+          bodyTemperatureScore: null,
+          activityBalance: null,
+          sleepBalance: null,
+          previousDayActivity: null,
+          previousNightScore: null,
+          stayActiveScore: null,
+          moveEveryHourScore: null,
+          meetDailyTargetsScore: null,
+          trainingFrequencyScore: null,
+          trainingVolumeScore: null,
+          recoveryTimeScore: null,
           tags: [],
           sleepPhase5Min: null,
           hrv5Min: null,
@@ -240,6 +282,20 @@ export async function POST(req: Request) {
       resilienceStressBalance: null,
       optimalBedtimeStart: null,
       optimalBedtimeEnd: null,
+      hrvBalance: null,
+      recoveryIndex: null,
+      restingHeartRateScore: null,
+      bodyTemperatureScore: null,
+      activityBalance: null,
+      sleepBalance: null,
+      previousDayActivity: null,
+      previousNightScore: null,
+      stayActiveScore: null,
+      moveEveryHourScore: null,
+      meetDailyTargetsScore: null,
+      trainingFrequencyScore: null,
+      trainingVolumeScore: null,
+      recoveryTimeScore: null,
       tags: [],
       sleepPhase5Min: null,
       hrv5Min: null,
@@ -273,5 +329,10 @@ export async function POST(req: Request) {
   }
 
   const sorted = [...normalized].sort((a, b) => a.date.localeCompare(b.date));
-  return NextResponse.json({ data: sorted, range: { start, end, timeZone } });
+  return NextResponse.json({
+    data: sorted,
+    range: { start, end, timeZone },
+    syncedDays: sorted.length,
+    message: `Synced ${sorted.length} days of data`,
+  });
 }

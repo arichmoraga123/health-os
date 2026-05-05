@@ -13,22 +13,29 @@ type Plan = {
     destination?: string;
   };
   structuredPlan?: {
-    direction?: string;
-    preflight_advice?: string;
-    inflight_schedule?: Array<{ label: string; start: string; end: string; action: string }>;
-    daily_plans?: Array<{ day: number; title: string; body: string; expected_hrv: string; expected_readiness: string }>;
-    light_schedule?: Array<{ time: string; instruction: string; code: string }>;
-    melatonin_schedule?: Array<{ time: string; dose: string; note: string }>;
-    exercise_timing?: string;
-    meal_timing?: string;
+    flightPlan?: {
+      sleepWindows?: Array<{ start: string; end: string; timezone: "origin" | "dest"; note: string }>;
+      awakeWindows?: Array<{ start: string; end: string; note: string }>;
+      melatoninOnFlight?: string;
+      mealStrategy?: string;
+    };
+    preDeparture?: Array<{ day: -3 | -2 | -1; advice: string; sleepTarget: string }>;
+    arrivalDay?: { immediateActions: string; targetBedtime: string; lightExposure: string };
+    dailyPlans?: Array<{
+      dayNumber: number;
+      date: string;
+      targetSleep: string;
+      targetWake: string;
+      lightSeek: string;
+      lightAvoid: string;
+      exercise: string;
+      expectedReadiness: number;
+      expectedHRV: number;
+      notes: string;
+    }>;
+    melatoninSchedule?: Array<{ day: number; time: string; dose: string }>;
+    caffeineStrategy?: string;
   };
-};
-
-const codeEmoji: Record<string, string> = {
-  sleep: "🟢",
-  light: "🟡",
-  avoid: "🔴",
-  caffeine: "☕",
 };
 
 export function TripPlanner() {
@@ -186,38 +193,52 @@ export function TripPlanner() {
         </p>
       ) : null}
 
-      {s?.inflight_schedule?.length ? (
+      {s?.flightPlan ? (
         <section className="panel p-6 md:p-8">
-          <h3 className="heading-font text-3xl text-white">Flight timeline</h3>
-          <div className="mt-6 space-y-3">
-            {s.inflight_schedule.map((seg, i) => (
-              <div
-                key={i}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-white/[0.03] px-4 py-3"
-              >
-                <span className="text-[12px] font-semibold text-white">{seg.label}</span>
-                <span className="text-[11px] text-[var(--text-muted)]">
-                  {seg.start} – {seg.end}
-                </span>
-                <span className="text-[12px] text-[var(--text-secondary)] capitalize">{seg.action}</span>
+          <h3 className="heading-font text-3xl text-white">IN-FLIGHT STRATEGY</h3>
+          <div className="mt-4 rounded-xl border border-[var(--border)] overflow-hidden">
+            <div className="h-5 bg-yellow-400/40 flex">
+              {(s.flightPlan.awakeWindows ?? []).map((w, i) => (
+                <div key={`a-${i}`} className="h-full bg-yellow-400/70 flex-1" title={`${w.start}-${w.end}`} />
+              ))}
+              {(s.flightPlan.sleepWindows ?? []).map((w, i) => (
+                <div key={`s-${i}`} className="h-full bg-emerald-400/80 flex-1" title={`${w.start}-${w.end}`} />
+              ))}
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2">
+            {(s.flightPlan.sleepWindows ?? []).map((w, i) => (
+              <div key={i} className="text-[12px] text-[var(--text-secondary)]">
+                🟢 Sleep {w.start}-{w.end} ({w.timezone}) - {w.note}
+              </div>
+            ))}
+            {(s.flightPlan.awakeWindows ?? []).map((w, i) => (
+              <div key={i} className="text-[12px] text-[var(--text-secondary)]">
+                🟡 Awake {w.start}-{w.end} - {w.note}
               </div>
             ))}
           </div>
+          <p className="mt-3 text-[13px] text-[var(--text-secondary)]">💊 {s.flightPlan.melatoninOnFlight}</p>
+          <p className="text-[13px] text-[var(--text-secondary)]">🍽 {s.flightPlan.mealStrategy}</p>
         </section>
       ) : null}
 
-      {s?.daily_plans?.length ? (
+      {s?.dailyPlans?.length ? (
         <section className="space-y-4">
           <h3 className="heading-font text-3xl text-white px-1">First days on the ground</h3>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {s.daily_plans.slice(0, 5).map((d) => (
-              <div key={d.day} className="panel p-6">
-                <p className="label-caps">Day {d.day}</p>
-                <h4 className="mt-2 text-lg text-white">{d.title}</h4>
-                <p className="mt-2 text-[13px] text-[var(--text-secondary)]">{d.body}</p>
+            {s.dailyPlans.slice(0, 5).map((d) => (
+              <div key={d.dayNumber} className="panel p-6">
+                <p className="label-caps">Day {d.dayNumber}</p>
+                <h4 className="mt-2 text-lg text-white">{d.date}</h4>
+                <p className="mt-2 text-[13px] text-[var(--text-secondary)]">{d.notes}</p>
                 <div className="mt-4 space-y-1 text-[11px] text-[var(--text-muted)]">
-                  <div>HRV: {d.expected_hrv}</div>
-                  <div>Readiness: {d.expected_readiness}</div>
+                  <div>{d.targetSleep} {"->"} {d.targetWake}</div>
+                  <div>Seek: {d.lightSeek}</div>
+                  <div>Avoid: {d.lightAvoid}</div>
+                  <div>Exercise: {d.exercise}</div>
+                  <div>Readiness: {d.expectedReadiness}</div>
+                  <div>HRV: {d.expectedHRV}</div>
                 </div>
               </div>
             ))}
@@ -225,61 +246,50 @@ export function TripPlanner() {
         </section>
       ) : null}
 
-      {s?.light_schedule?.length ? (
+      {s?.preDeparture?.length ? (
         <section className="panel p-6 md:p-8">
-          <h3 className="heading-font text-3xl text-white">Light & cues</h3>
+          <h3 className="heading-font text-3xl text-white">Pre-departure</h3>
           <ul className="mt-4 space-y-2">
-            {s.light_schedule.map((row, i) => (
+            {s.preDeparture.map((row, i) => (
               <li key={i} className="flex gap-3 text-[13px] text-[var(--text-secondary)]">
-                <span>{codeEmoji[row.code] ?? "•"}</span>
-                <span className="text-[var(--text-muted)] shrink-0">{row.time}</span>
-                <span>{row.instruction}</span>
+                <span className="text-[var(--text-muted)] shrink-0">Day {row.day}</span>
+                <span>{row.advice} · Sleep target {row.sleepTarget}</span>
               </li>
             ))}
           </ul>
         </section>
       ) : null}
 
-      {s?.melatonin_schedule?.length ? (
+      {s?.melatoninSchedule?.length ? (
         <section className="panel p-6 md:p-8">
           <h3 className="heading-font text-3xl text-white">Melatonin timing</h3>
           <p className="mt-2 text-[11px] text-[var(--text-muted)]">General guidance only — consult your clinician.</p>
           <ul className="mt-4 space-y-3">
-            {s.melatonin_schedule.map((m, i) => (
+            {s.melatoninSchedule.map((m, i) => (
               <li key={i} className="rounded-xl border border-[var(--border)] bg-white/[0.03] p-4">
-                <div className="text-white font-medium">{m.time}</div>
+                <div className="text-white font-medium">Day {m.day} · {m.time}</div>
                 <div className="text-[13px] text-[var(--text-secondary)]">{m.dose}</div>
-                <div className="text-[12px] text-[var(--text-muted)]">{m.note}</div>
               </li>
             ))}
           </ul>
         </section>
       ) : null}
 
-      {(s?.exercise_timing || s?.meal_timing || s?.preflight_advice || s?.direction) && (
+      {(s?.arrivalDay || s?.caffeineStrategy) && (
         <section className="grid gap-4 md:grid-cols-2">
-          {s.direction ? (
-            <div className="panel p-6">
-              <p className="label-caps mb-2">Direction</p>
-              <p className="text-[13px] text-[var(--text-secondary)]">{s.direction}</p>
-            </div>
-          ) : null}
-          {s.preflight_advice ? (
+          {s.arrivalDay ? (
             <div className="panel p-6 md:col-span-2">
-              <p className="label-caps mb-2">Pre-departure</p>
-              <p className="text-[13px] text-[var(--text-secondary)]">{s.preflight_advice}</p>
+              <p className="label-caps mb-2">Arrival day</p>
+              <p className="text-[13px] text-[var(--text-secondary)]">{s.arrivalDay.immediateActions}</p>
+              <p className="mt-2 text-[12px] text-[var(--text-muted)]">
+                Target bedtime: {s.arrivalDay.targetBedtime} · Light: {s.arrivalDay.lightExposure}
+              </p>
             </div>
           ) : null}
-          {s.exercise_timing ? (
+          {s.caffeineStrategy ? (
             <div className="panel p-6">
-              <p className="label-caps mb-2">Exercise</p>
-              <p className="text-[13px] text-[var(--text-secondary)]">{s.exercise_timing}</p>
-            </div>
-          ) : null}
-          {s.meal_timing ? (
-            <div className="panel p-6">
-              <p className="label-caps mb-2">Meals</p>
-              <p className="text-[13px] text-[var(--text-secondary)]">{s.meal_timing}</p>
+              <p className="label-caps mb-2">Caffeine strategy</p>
+              <p className="text-[13px] text-[var(--text-secondary)]">{s.caffeineStrategy}</p>
             </div>
           ) : null}
         </section>

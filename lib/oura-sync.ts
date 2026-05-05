@@ -33,6 +33,20 @@ export type NormalizedSnapshot = {
   resilienceStressBalance: number | null;
   optimalBedtimeStart: string | null;
   optimalBedtimeEnd: string | null;
+  hrvBalance: number | null;
+  recoveryIndex: number | null;
+  restingHeartRateScore: number | null;
+  bodyTemperatureScore: number | null;
+  activityBalance: number | null;
+  sleepBalance: number | null;
+  previousDayActivity: number | null;
+  previousNightScore: number | null;
+  stayActiveScore: number | null;
+  moveEveryHourScore: number | null;
+  meetDailyTargetsScore: number | null;
+  trainingFrequencyScore: number | null;
+  trainingVolumeScore: number | null;
+  recoveryTimeScore: number | null;
   tags: unknown;
   sleepPhase5Min: unknown;
   hrv5Min: unknown;
@@ -123,7 +137,7 @@ export function mergeOuraDaily(
       bedtimeEnd: ds?.bedtime_end ? new Date(String(ds.bedtime_end)) : null,
       hrv: num(s?.average_hrv) ?? num(readContrib.hrv_balance),
       efficiency: num(s?.efficiency),
-      latency: num(s?.latency),
+      latency: num(s?.latency) != null ? Math.round((num(s?.latency) ?? 0) / 60) : null,
       averageBreath: num(ds?.average_breath),
       lowestHeartRate: num(ds?.lowest_heart_rate),
       averageHeartRate: num(hr?.average_heart_rate) ?? num(ds?.average_heart_rate),
@@ -151,6 +165,20 @@ export function mergeOuraDaily(
         typeof sleepTime?.optimal_bedtime_end === "string"
           ? String(sleepTime.optimal_bedtime_end)
           : null,
+      hrvBalance: num(readContrib.hrv_balance),
+      recoveryIndex: num(readContrib.recovery_index),
+      restingHeartRateScore: num(readContrib.resting_heart_rate),
+      bodyTemperatureScore: num(readContrib.body_temperature),
+      activityBalance: num(readContrib.activity_balance),
+      sleepBalance: num(readContrib.sleep_balance),
+      previousDayActivity: num(readContrib.previous_day_activity),
+      previousNightScore: num(readContrib.previous_night),
+      stayActiveScore: num(activityContrib.stay_active),
+      moveEveryHourScore: num(activityContrib.move_every_hour),
+      meetDailyTargetsScore: num(activityContrib.meet_daily_targets),
+      trainingFrequencyScore: num(activityContrib.training_frequency),
+      trainingVolumeScore: num(activityContrib.training_volume),
+      recoveryTimeScore: num(activityContrib.recovery_time),
       tags,
       sleepPhase5Min: ds?.sleep_phase_5_min ?? null,
       hrv5Min: ds?.hrv_5_min ?? null,

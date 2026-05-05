@@ -9,7 +9,7 @@ import {
   timezonePlans,
   users,
 } from "@/db/schema";
-import { askClaude } from "@/lib/ai";
+import { streamClaude } from "@/lib/ai";
 import { requireApiUser } from "@/lib/api-auth";
 import { dateKey } from "@/lib/utils";
 
@@ -42,8 +42,7 @@ export async function POST(request: Request) {
     .limit(20);
 
   const tags = snapshots.flatMap((s) => (Array.isArray(s.tags) ? s.tags : []));
-  const answer = await askClaude(
-    `System:
+  const prompt = `System:
 You are an elite performance coach and sleep scientist with access to the user's complete Oura biometric data. You have expertise in sleep science, HRV, circadian biology, stress physiology, and athletic performance. Be specific, reference actual numbers from their data, give actionable advice. Keep responses under 150 words unless asked for detail. Never be vague.
 
 Context:
@@ -55,12 +54,35 @@ trip_plan=${JSON.stringify(tripPlan)}
 community_challenges=${JSON.stringify(challengeProgress)}
 
 Conversation:
-${JSON.stringify(messages)}`,
-  );
+${JSON.stringify(messages)}`;
   const encoder = new TextEncoder();
+  const modelMessages = [
+    { role: "user" as const, content: prompt },
+    ...((Array.isArray(messages) ? messages : []).map((m: { role?: string; content?: string }) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: String(m.content ?? ""),
+    })) as Array<{ role: "user" | "assistant"; content: string }>),
+  ];
+  const claudeStream = streamClaude(modelMessages);
   const stream = new ReadableStream({
-    start(controller) {
-      answer.split(" ").forEach((word) => controller.enqueue(encoder.encode(`${word} `)));
+    async start(controller) {
+      let full = "";
+      for await (const event of claudeStream) {
+        const maybeText =
+          event.type === "content_block_delta" &&
+          "delta" in event &&
+          typeof (event.delta as { text?: unknown }).text === "string"
+            ? ((event.delta as { text?: string }).text ?? "")
+            : "";
+        const chunk = maybeText;
+        if (chunk) {
+          full += chunk;
+          controller.enqueue(encoder.encode(chunk));
+        }
+      }
+      if (!full) {
+        controller.enqueue(encoder.encode("No response generated."));
+      }
       controller.close();
     },
   });

@@ -8,14 +8,28 @@ import { requireApiUser } from "@/lib/api-auth";
 import { resolveCityTimeZone } from "@/lib/city-tz";
 
 type StructuredPlan = {
-  direction: string;
-  preflight_advice: string;
-  inflight_schedule: Array<{ label: string; start: string; end: string; action: string }>;
-  daily_plans: Array<{ day: number; title: string; body: string; expected_hrv: string; expected_readiness: string }>;
-  light_schedule: Array<{ time: string; instruction: string; code: string }>;
-  melatonin_schedule: Array<{ time: string; dose: string; note: string }>;
-  exercise_timing: string;
-  meal_timing: string;
+  flightPlan: {
+    sleepWindows: Array<{ start: string; end: string; timezone: "origin" | "dest"; note: string }>;
+    awakeWindows: Array<{ start: string; end: string; note: string }>;
+    melatoninOnFlight: string;
+    mealStrategy: string;
+  };
+  preDeparture: Array<{ day: -3 | -2 | -1; advice: string; sleepTarget: string }>;
+  arrivalDay: { immediateActions: string; targetBedtime: string; lightExposure: string };
+  dailyPlans: Array<{
+    dayNumber: number;
+    date: string;
+    targetSleep: string;
+    targetWake: string;
+    lightSeek: string;
+    lightAvoid: string;
+    exercise: string;
+    expectedReadiness: number;
+    expectedHRV: number;
+    notes: string;
+  }>;
+  melatoninSchedule: Array<{ day: number; time: string; dose: string }>;
+  caffeineStrategy: string;
 };
 
 function parsePlanJson(text: string): StructuredPlan | null {
@@ -64,20 +78,30 @@ export async function POST(request: Request) {
   const offsetHours =
     (getTimezoneOffset(originTz, pivot) - getTimezoneOffset(destTz, pivot)) / 3_600_000;
 
-  const prompt = `You are a circadian medicine specialist. Create a jet lag combat plan as ONLY valid JSON (no markdown fences) with this exact shape:
+  const prompt = `Generate a comprehensive jet lag plan with these exact sections:
+1) FLIGHT PLAN with exact SLEEP and AWAKE windows on the flight (origin + destination time references), melatonin on flight, meal timing, eye mask/earplugs guidance.
+2) PRE-DEPARTURE for day -3/-2/-1
+3) ARRIVAL DAY immediate actions and target bedtime
+4) DAYS 1-5 POST ARRIVAL with target sleep/wake, light windows, exercise, expected readiness and HRV
+5) RETURN TRIP notes (if return date exists)
+
+Return ONLY valid JSON with exactly this shape:
 {
-  "direction": "eastward or westward and why",
-  "preflight_advice": "string, 2-3 days before departure",
-  "inflight_schedule": [{"label":"string","start":"HH:mm","end":"HH:mm","action":"sleep|awake|light|caffeine"}],
-  "daily_plans": [{"day":1,"title":"string","body":"string","expected_hrv":"string","expected_readiness":"string"}],
-  "light_schedule": [{"time":"string","instruction":"string","code":"sleep|light|avoid|caffeine"}],
-  "melatonin_schedule": [{"time":"string","dose":"string","note":"string"}],
-  "exercise_timing": "string",
-  "meal_timing": "string"
+  "flightPlan": {
+    "sleepWindows": [{"start":"HH:MM","end":"HH:MM","timezone":"origin|dest","note":"string"}],
+    "awakeWindows": [{"start":"HH:MM","end":"HH:MM","note":"string"}],
+    "melatoninOnFlight": "string",
+    "mealStrategy": "string"
+  },
+  "preDeparture": [{"day":-3,"advice":"string","sleepTarget":"string"}],
+  "arrivalDay": {"immediateActions":"string","targetBedtime":"string","lightExposure":"string"},
+  "dailyPlans": [{
+    "dayNumber":1,"date":"string","targetSleep":"string","targetWake":"string","lightSeek":"string","lightAvoid":"string","exercise":"string","expectedReadiness":70,"expectedHRV":40,"notes":"string"
+  }],
+  "melatoninSchedule": [{"day":1,"time":"string","dose":"string"}],
+  "caffeineStrategy": "string"
 }
-Trip facts: origin city="${origin}" (IANA ${originTz}), destination="${destination}" (IANA ${destTz}), departure local date ${departureDate} time ${departureTime}, flight hours ${flightDuration}, return ${returnDate || "n/a"}.
-Approx clock offset origin vs destination at departure day: ${offsetHours.toFixed(1)} hours (destination minus origin).
-Include melatonin only as general timing guidance, not medical prescription. Be specific with times relative to destination timezone after landing.`;
+Trip facts: depart ${departureDate} ${departureTime}, ${flightDuration}h flight, origin ${origin} (${originTz}), destination ${destination} (${destTz}), return ${returnDate || "n/a"}, offset ${offsetHours.toFixed(1)}h.`;
 
   let raw: string;
   try {
@@ -89,7 +113,7 @@ Include melatonin only as general timing guidance, not medical prescription. Be 
 
   const structured = parsePlanJson(raw);
   const planMarkdown = structured
-    ? `# Trip plan\n\n${structured.preflight_advice}\n\n${structured.daily_plans.map((d) => `## Day ${d.day}: ${d.title}\n${d.body}`).join("\n\n")}`
+    ? `# Trip plan\n\n## In-flight\n${structured.flightPlan.melatoninOnFlight}\n\n## Arrival day\n${structured.arrivalDay.immediateActions}\n\n## Daily\n${structured.dailyPlans.map((d) => `Day ${d.dayNumber}: ${d.notes}`).join("\n")}`
     : raw;
 
   const tripMeta = {
@@ -112,7 +136,7 @@ Include melatonin only as general timing guidance, not medical prescription. Be 
     planMarkdown,
     tripMeta,
     structuredPlan: structured ?? { raw },
-    lightExposureTimes: structured?.light_schedule ?? null,
+    lightExposureTimes: structured?.dailyPlans ?? null,
   });
 
   return NextResponse.json({
