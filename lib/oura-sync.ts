@@ -8,8 +8,34 @@ export type NormalizedSnapshot = {
   deepSleep: number | null;
   remSleep: number | null;
   lightSleep: number | null;
+  awakeTime: number | null;
+  timeInBed: number | null;
+  bedtimeStart: Date | null;
+  bedtimeEnd: Date | null;
   efficiency: number | null;
   latency: number | null;
+  averageBreath: number | null;
+  lowestHeartRate: number | null;
+  averageHeartRate: number | null;
+  maxHeartRate: number | null;
+  minSpo2: number | null;
+  avgSpo2: number | null;
+  inactivityAlerts: number | null;
+  averageMetMinutes: number | null;
+  targetCalories: number | null;
+  targetMeters: number | null;
+  stressHigh: number | null;
+  recoveryHigh: number | null;
+  stressSummary: string | null;
+  resilienceLevel: string | null;
+  resilienceSleepRecovery: number | null;
+  resilienceDaytimeRecovery: number | null;
+  resilienceStressBalance: number | null;
+  optimalBedtimeStart: string | null;
+  optimalBedtimeEnd: string | null;
+  tags: unknown;
+  sleepPhase5Min: unknown;
+  hrv5Min: unknown;
   restfulness: number | null;
   timing: number | null;
   steps: number | null;
@@ -34,6 +60,15 @@ export function mergeOuraDaily(
   sleepRows: Array<Record<string, unknown>>,
   readinessRows: Array<Record<string, unknown>>,
   activityRows: Array<Record<string, unknown>>,
+  detailed: {
+    sleepByDay?: Map<string, Record<string, unknown>>;
+    heartByDay?: Map<string, Record<string, unknown>>;
+    spo2ByDay?: Map<string, Record<string, unknown>>;
+    stressByDay?: Map<string, Record<string, unknown>>;
+    resilienceByDay?: Map<string, Record<string, unknown>>;
+    tagsByDay?: Map<string, unknown[]>;
+    sleepTimeByDay?: Map<string, Record<string, unknown>>;
+  } = {},
 ): NormalizedSnapshot[] {
   const sleepByDay = new Map<string, Record<string, unknown>>();
   for (const row of sleepRows) {
@@ -62,9 +97,18 @@ export function mergeOuraDaily(
     const s = sleepByDay.get(date);
     const r = readinessByDay.get(date);
     const a = activityByDay.get(date);
+    const ds = detailed.sleepByDay?.get(date);
+    const hr = detailed.heartByDay?.get(date);
+    const spo2 = detailed.spo2ByDay?.get(date);
+    const stress = detailed.stressByDay?.get(date);
+    const resilience = detailed.resilienceByDay?.get(date);
+    const tags = detailed.tagsByDay?.get(date) ?? [];
+    const sleepTime = detailed.sleepTimeByDay?.get(date);
 
     const sleepContrib = (s?.contributors ?? {}) as Record<string, unknown>;
     const readContrib = (r?.contributors ?? {}) as Record<string, unknown>;
+    const activityContrib = (a?.contributors ?? {}) as Record<string, unknown>;
+    const resilContrib = (resilience?.contributors ?? {}) as Record<string, unknown>;
 
     return {
       date,
@@ -73,9 +117,43 @@ export function mergeOuraDaily(
       deepSleep: num(s?.deep_sleep_duration),
       remSleep: num(s?.rem_sleep_duration),
       lightSleep: num(s?.light_sleep_duration),
+      awakeTime: num(ds?.awake_time),
+      timeInBed: num(ds?.time_in_bed),
+      bedtimeStart: ds?.bedtime_start ? new Date(String(ds.bedtime_start)) : null,
+      bedtimeEnd: ds?.bedtime_end ? new Date(String(ds.bedtime_end)) : null,
       hrv: num(s?.average_hrv) ?? num(readContrib.hrv_balance),
       efficiency: num(s?.efficiency),
       latency: num(s?.latency),
+      averageBreath: num(ds?.average_breath),
+      lowestHeartRate: num(ds?.lowest_heart_rate),
+      averageHeartRate: num(hr?.average_heart_rate) ?? num(ds?.average_heart_rate),
+      maxHeartRate: num(hr?.max_heart_rate) ?? num(ds?.max_heart_rate),
+      minSpo2: num(spo2?.spo2_percentage_min),
+      avgSpo2: num(spo2?.average_spo2),
+      inactivityAlerts: num(a?.inactivity_alerts),
+      averageMetMinutes: num(a?.average_met_minutes),
+      targetCalories: num(a?.target_calories),
+      targetMeters: num(a?.target_meters),
+      stressHigh: num(stress?.stress_high),
+      recoveryHigh: num(stress?.recovery_high),
+      stressSummary:
+        typeof stress?.day_summary === "string" ? String(stress.day_summary) : null,
+      resilienceLevel:
+        typeof resilience?.level === "string" ? String(resilience.level) : null,
+      resilienceSleepRecovery: num(resilContrib.sleep_recovery),
+      resilienceDaytimeRecovery: num(resilContrib.daytime_recovery),
+      resilienceStressBalance: num(resilContrib.stress_balance),
+      optimalBedtimeStart:
+        typeof sleepTime?.optimal_bedtime_start === "string"
+          ? String(sleepTime.optimal_bedtime_start)
+          : null,
+      optimalBedtimeEnd:
+        typeof sleepTime?.optimal_bedtime_end === "string"
+          ? String(sleepTime.optimal_bedtime_end)
+          : null,
+      tags,
+      sleepPhase5Min: ds?.sleep_phase_5_min ?? null,
+      hrv5Min: ds?.hrv_5_min ?? null,
       restfulness: num(sleepContrib.restfulness),
       timing: num(sleepContrib.timing),
       readinessScore: num(r?.score),
@@ -88,8 +166,8 @@ export function mergeOuraDaily(
       highActivityTime: num(a?.high_activity_time),
       sedentaryTime: num(a?.sedentary_time),
       rawSleep: s ?? null,
-      rawReadiness: r ?? null,
-      rawActivity: a ?? null,
+      rawReadiness: { row: r ?? null, contributors: readContrib },
+      rawActivity: { row: a ?? null, contributors: activityContrib },
     };
   });
 }

@@ -6,7 +6,7 @@ export default async function CalendarPage() {
   return (
     <AppShell title="Calendar">
       <section className="panel p-4 space-y-3">
-        <a href="/api/calendar/auth" className="inline-block panel px-3 py-2 bg-[var(--sleep)] text-black">
+        <a href="/api/calendar/auth" className="btn btn-primary">
           Connect Google Calendar
         </a>
         <p className="text-sm text-[var(--muted2)]">

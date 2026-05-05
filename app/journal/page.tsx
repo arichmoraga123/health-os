@@ -7,7 +7,22 @@ export default async function JournalPage() {
   const snapshots = await getSnapshots(session.user!.id, 1);
   const history = await getRecentJournal(session.user!.id);
   const s = snapshots[0];
-  const prompt = `Your HRV is ${s.hrv}. What felt different yesterday that may have influenced recovery?`;
+  const tags =
+    Array.isArray(s?.tags) && s.tags.length
+      ? s.tags
+          .map((t) =>
+            typeof t === "object" && t && "label" in (t as Record<string, unknown>)
+              ? String((t as Record<string, unknown>).label)
+              : typeof t === "object" && t && "tag_type_code" in (t as Record<string, unknown>)
+                ? String((t as Record<string, unknown>).tag_type_code)
+                : null,
+          )
+          .filter(Boolean)
+      : [];
+  const tagText = tags.length ? `Your tags today: ${tags.join(", ")}.` : "No Oura tags for today.";
+  const prompt = `${tagText} Sleep ${s.sleepScore ?? "—"}, readiness ${
+    s.readinessScore ?? "—"
+  }, HRV ${s.hrv ?? "—"}, stress high ${s.stressHigh ?? "—"}m. What likely drove these patterns?`;
   return (
     <AppShell title="Journal">
       <section className="panel p-4">

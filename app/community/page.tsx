@@ -3,10 +3,10 @@ import { CommunityActions } from "@/components/community-actions";
 import { requireSession } from "@/lib/session";
 
 const demoLeaderboard = [
-  { rank: 1, name: "Alex M.", sleep: 89, readiness: 92, activity: 88, steps: 12400, streak: 12 },
-  { rank: 2, name: "Jordan K.", sleep: 85, readiness: 87, activity: 91, steps: 14200, streak: 8 },
-  { rank: 3, name: "Sam R.", sleep: 82, readiness: 84, activity: 79, steps: 9800, streak: 21 },
-  { rank: 4, name: "You", sleep: 78, readiness: 81, activity: 85, steps: 11200, streak: 5 },
+  { rank: 1, name: "Alex M.", sleep: 89, readiness: 92, activity: 88, hrv: 78, resilience: "Strong", steps: 12400, streak: 12 },
+  { rank: 2, name: "Jordan K.", sleep: 85, readiness: 87, activity: 91, hrv: 73, resilience: "Solid", steps: 14200, streak: 8 },
+  { rank: 3, name: "Sam R.", sleep: 82, readiness: 84, activity: 79, hrv: 61, resilience: "Adequate", steps: 9800, streak: 21 },
+  { rank: 4, name: "You", sleep: 78, readiness: 81, activity: 85, hrv: 67, resilience: "Solid", steps: 11200, streak: 5 },
 ];
 
 function scoreBadgeClass(v: number) {
@@ -36,6 +36,8 @@ export default async function CommunityPage() {
                 <th className="px-4 py-3">Sleep</th>
                 <th className="px-4 py-3">Readiness</th>
                 <th className="px-4 py-3">Activity</th>
+                <th className="px-4 py-3">HRV</th>
+                <th className="px-4 py-3">Resilience</th>
                 <th className="px-4 py-3">Steps</th>
                 <th className="px-4 py-3">Streak</th>
               </tr>
@@ -65,6 +67,8 @@ export default async function CommunityPage() {
                       {row.activity}
                     </span>
                   </td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{row.hrv}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{row.resilience}</td>
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{row.steps.toLocaleString()}</td>
                   <td className="px-4 py-3 text-[var(--warn)]">
                     🔥 {row.streak}

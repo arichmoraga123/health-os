@@ -13,6 +13,14 @@ import { ErrorBoundary } from "@/components/error-boundary";
 
 const RANGES = [7, 14, 30, 90] as const;
 
+function formatSecs(sec: number | null | undefined) {
+  if (sec == null) return "—";
+  const mins = Math.round(sec / 60);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 export function DashboardClient({
   timeZone: initialTz,
   initialSnapshots,
@@ -82,6 +90,16 @@ export function DashboardClient({
   }
 
   const labels = snapshots.map((s) => s.date.slice(5));
+  const phaseSeries = Array.isArray(todayRow?.sleepPhase5Min)
+    ? (todayRow?.sleepPhase5Min as unknown[])
+        .map((v) => (typeof v === "number" ? v : Number(v)))
+        .filter((v) => Number.isFinite(v))
+    : [];
+  const hrvNightSeries = Array.isArray(todayRow?.hrv5Min)
+    ? (todayRow?.hrv5Min as unknown[])
+        .map((v) => (typeof v === "number" ? v : Number(v)))
+        .filter((v) => Number.isFinite(v))
+    : [];
   const readiness = todayRow?.readinessScore ?? 0;
   let recoveryMsg = "🔴 Recovery — Take it easy";
   if (readiness > 85) recoveryMsg = "🟢 Peak Performance — Push hard today";
@@ -136,6 +154,11 @@ export function DashboardClient({
         </>
       }
     >
+      {snapshots.length === 0 && (
+        <section className="panel p-6 text-[13px] text-[var(--text-secondary)]">
+          No Oura data yet. Click <span className="text-white">Sync now</span> to import your latest metrics.
+        </section>
+      )}
       {isFallback && todayRow ? (
         <p className="mb-4 rounded-[var(--radius-card)] border border-[var(--border)] bg-white/[0.03] px-4 py-3 text-[12px] text-[var(--text-secondary)]">
           Today&apos;s ring data isn&apos;t available yet — showing <span className="text-white">{todayRow.date}</span>{" "}
@@ -201,7 +224,7 @@ export function DashboardClient({
               <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {[
                   ["Efficiency", todayRow?.efficiency != null ? `${todayRow.efficiency}%` : "—"],
-                  ["Latency", todayRow?.latency != null ? `${todayRow.latency}s` : "—"],
+                  ["Latency", todayRow?.latency != null ? `${Math.round(todayRow.latency / 60)}m` : "—"],
                   ["Restfulness", todayRow?.restfulness ?? "—"],
                   ["Timing", todayRow?.timing ?? "—"],
                 ].map(([k, v]) => (
@@ -222,6 +245,67 @@ export function DashboardClient({
               />
             </div>
           </section>
+
+          <section className="grid gap-6 lg:grid-cols-3">
+            <div className="panel p-6 md:p-8">
+              <p className="label-caps mb-2">Bedtime / Wake</p>
+              <p className="text-[13px] text-[var(--text-secondary)]">
+                {todayRow?.bedtimeStart ? new Date(todayRow.bedtimeStart).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—"}{" "}
+                →{" "}
+                {todayRow?.bedtimeEnd ? new Date(todayRow.bedtimeEnd).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—"}
+              </p>
+            </div>
+            <div className="panel p-6 md:p-8">
+              <p className="label-caps mb-2">Time in bed vs asleep</p>
+              <p className="text-[13px] text-[var(--text-secondary)]">
+                {formatSecs(todayRow?.timeInBed)} / {formatSecs(todayRow?.sleepDuration)}
+              </p>
+              <p className="mt-1 text-[12px] text-[var(--text-muted)]">Awake: {formatSecs(todayRow?.awakeTime)}</p>
+            </div>
+            <div className="panel p-6 md:p-8">
+              <p className="label-caps mb-2">Body metrics</p>
+              <p className="text-[13px] text-[var(--text-secondary)]">
+                SpO₂ avg/min: {todayRow?.avgSpo2 ?? "—"} / {todayRow?.minSpo2 ?? "—"}
+              </p>
+              <p className="mt-1 text-[12px] text-[var(--text-muted)]">
+                HR avg/max/min: {todayRow?.averageHeartRate ?? "—"} / {todayRow?.maxHeartRate ?? "—"} / {todayRow?.lowestHeartRate ?? "—"}
+              </p>
+              {todayRow?.avgSpo2 != null && todayRow.avgSpo2 < 95 ? (
+                <p className="mt-2 text-[12px] text-[var(--warn)]">Warning: SpO₂ below 95%</p>
+              ) : null}
+            </div>
+          </section>
+
+          {(phaseSeries.length > 0 || hrvNightSeries.length > 0) && (
+            <section className="grid gap-6 lg:grid-cols-2">
+              <div className="panel p-6 md:p-8">
+                <p className="label-caps mb-4">Sleep hypnogram (5-min)</p>
+                {phaseSeries.length > 0 ? (
+                  <LineChart
+                    data={{
+                      labels: phaseSeries.map((_, i) => `${i * 5}m`),
+                      datasets: [{ label: "Stage", data: phaseSeries, borderColor: "#6c63ff", tension: 0.2 }],
+                    }}
+                  />
+                ) : (
+                  <p className="text-[12px] text-[var(--text-muted)]">No detailed stage data yet.</p>
+                )}
+              </div>
+              <div className="panel p-6 md:p-8">
+                <p className="label-caps mb-4">HRV through night (5-min)</p>
+                {hrvNightSeries.length > 0 ? (
+                  <LineChart
+                    data={{
+                      labels: hrvNightSeries.map((_, i) => `${i * 5}m`),
+                      datasets: [{ label: "HRV", data: hrvNightSeries, borderColor: "#ff3d7f", tension: 0.2 }],
+                    }}
+                  />
+                ) : (
+                  <p className="text-[12px] text-[var(--text-muted)]">No overnight HRV detail yet.</p>
+                )}
+              </div>
+            </section>
+          )}
 
           <section className="grid gap-6 lg:grid-cols-2">
             <div className="panel p-6 md:p-8">
@@ -263,6 +347,14 @@ export function DashboardClient({
               />
               <p className="mt-3 text-[12px] text-[var(--text-muted)]">
                 Body temp deviation: {todayRow?.bodyTempDeviation ?? "—"}
+              </p>
+              <p className="mt-1 text-[12px] text-[var(--text-muted)]">
+                Stress high/recovery: {todayRow?.stressHigh ?? "—"}m / {todayRow?.recoveryHigh ?? "—"}m ·{" "}
+                {todayRow?.stressSummary ?? "—"}
+              </p>
+              <p className="mt-1 text-[12px] text-[var(--text-muted)]">
+                Resilience: {todayRow?.resilienceLevel ?? "—"} (sleep {todayRow?.resilienceSleepRecovery ?? "—"}, day{" "}
+                {todayRow?.resilienceDaytimeRecovery ?? "—"}, balance {todayRow?.resilienceStressBalance ?? "—"})
               </p>
             </div>
           </section>
