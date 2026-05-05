@@ -28,10 +28,19 @@ ChartJS.register(
 
 const baseOptions = {
   responsive: true,
-  plugins: { legend: { labels: { color: "#ddddf0", font: { family: "IBM Plex Mono" } } } },
+  plugins: { legend: { labels: { color: "#a0a0b8", font: { family: "IBM Plex Mono", size: 11 } } } },
   scales: {
-    x: { ticks: { color: "#7a7a9a" }, grid: { color: "rgba(255,255,255,0.06)" } },
-    y: { ticks: { color: "#7a7a9a" }, grid: { color: "rgba(255,255,255,0.06)" } },
+    x: { ticks: { color: "#4a4a6a" }, grid: { color: "rgba(255,255,255,0.06)" } },
+    y: { ticks: { color: "#4a4a6a" }, grid: { color: "rgba(255,255,255,0.06)" } },
+  },
+};
+
+const horizontalOptions = {
+  ...baseOptions,
+  indexAxis: "y" as const,
+  scales: {
+    x: { ticks: { color: "#4a4a6a" }, grid: { color: "rgba(255,255,255,0.06)" } },
+    y: { ticks: { color: "#a0a0b8" }, grid: { display: false } },
   },
 };
 
@@ -44,5 +53,9 @@ export function BarChart({ data }: { data: any }) {
 }
 
 export function DoughnutChart({ data }: { data: any }) {
-  return <Doughnut options={{ plugins: { legend: { labels: { color: "#ddddf0" } } } }} data={data} />;
+  return <Doughnut options={{ plugins: { legend: { labels: { color: "#a0a0b8" } } } }} data={data} />;
+}
+
+export function HorizontalBarChart({ data }: { data: any }) {
+  return <Bar options={horizontalOptions as any} data={data} />;
 }

@@ -1,5 +1,5 @@
-import { AppShell } from "@/components/app-shell";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  return <AppShell title="Dashboard">{children}</AppShell>;
+  return <ErrorBoundary>{children}</ErrorBoundary>;
 }

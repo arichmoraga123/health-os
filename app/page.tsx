@@ -38,32 +38,35 @@ export default function Home() {
           e.preventDefault();
           login(false);
         }}
-        className="panel w-full max-w-md p-6 space-y-4"
+        className="panel w-full max-w-md space-y-4 p-8"
       >
-        <h1 className="heading-font text-6xl leading-none">HEALTH OS</h1>
-        <p className="text-sm text-[var(--muted2)]">
+        <h1 className="heading-font text-6xl leading-none text-white">HEALTH OS</h1>
+        <p className="text-[13px] text-[var(--text-secondary)]">
           Connect your Oura token to unlock your daily performance operating system.
         </p>
         <input
-          className="w-full panel px-3 py-2 bg-[var(--surface2)]"
+          className="panel w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3 text-white"
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
         <input
           type="password"
-          className="w-full panel px-3 py-2 bg-[var(--surface2)]"
+          className="panel w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3 text-white"
           placeholder="Oura Personal Access Token"
           value={token}
           onChange={(e) => setToken(e.target.value)}
         />
-        <button disabled={loading} className="w-full py-2 panel bg-[var(--sleep)] text-black font-semibold">
+        <button
+          disabled={loading}
+          className="w-full rounded-full bg-[var(--sleep)] py-3 text-[13px] font-bold uppercase tracking-wide text-white disabled:opacity-50"
+        >
           {loading ? "Connecting..." : "Connect Oura"}
         </button>
         <button
           type="button"
           onClick={() => login(true)}
-          className="w-full py-2 panel"
+          className="w-full rounded-full border border-[var(--border)] bg-white/[0.06] py-3 text-[13px] font-semibold text-white"
         >
           Try Demo
         </button>

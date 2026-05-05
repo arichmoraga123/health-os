@@ -27,8 +27,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${ibmPlex.variable} ${bebas.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-[var(--bg)] text-[var(--text)]">
-        <Providers>{children}</Providers>
+      <body className="min-h-full flex flex-col bg-[var(--bg)] text-[var(--text)] text-[13px]">
+        <Providers>
+          <div className="page-fade flex-1 flex flex-col min-h-full">{children}</div>
+        </Providers>
       </body>
     </html>
   );

@@ -12,9 +12,9 @@ export async function GET() {
   for (const user of allUsers) {
     try {
       await Promise.all([
-        ouraFetch("/v2/usercollection/daily_sleep", user.ouraToken!),
-        ouraFetch("/v2/usercollection/daily_readiness", user.ouraToken!),
-        ouraFetch("/v2/usercollection/daily_activity", user.ouraToken!),
+        ouraFetch("v2/usercollection/daily_sleep", user.ouraToken!),
+        ouraFetch("v2/usercollection/daily_readiness", user.ouraToken!),
+        ouraFetch("v2/usercollection/daily_activity", user.ouraToken!),
       ]);
       const brief = await askClaude("Generate daily brief in 2 sentences.");
       await db.insert(dailyAiBriefs).values({ userId: user.id, date: dateKey(), briefMarkdown: brief });
