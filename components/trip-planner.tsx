@@ -129,6 +129,24 @@ function fallbackDirectionBullets(dir: "eastward" | "westward" | "other"): strin
   ];
 }
 
+function TabDataFallback() {
+  return (
+    <div className="panel rounded-2xl border border-dashed border-[var(--border)] bg-white/[0.02] p-8 text-center text-[14px] text-[var(--text-secondary)]">
+      Content unavailable — clear trip and regenerate
+    </div>
+  );
+}
+
+function readInFlightStrategy(plan: Phase5StructuredPlan): string {
+  const r = plan as Record<string, unknown>;
+  const direct = r.inFlightStrategy ?? r.in_flight_strategy;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  const parts = [plan.flightTimeline?.narrative, plan.performanceFraming].filter(
+    (x): x is string => typeof x === "string" && x.trim().length > 0,
+  );
+  return parts.join("\n\n").trim();
+}
+
 function chronotypeFallbackNarrative(ct: string, dir: "eastward" | "westward" | "other"): string {
   const label = chronotypeLabel(ct);
   if (dir === "eastward") {
@@ -168,7 +186,7 @@ export function TripPlanner() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [baseline, setBaseline] = useState<Baseline | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<TabId>("preflight");
+  const [activeTab, setActiveTab] = useState<TabId>("preflight");
   const [recovery, setRecovery] = useState<{
     active?: boolean;
     message?: string;
@@ -305,7 +323,7 @@ export function TripPlanner() {
       }
       loadBaseline();
       loadRecovery();
-      setTab("preflight");
+      setActiveTab("preflight");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
     } finally {
@@ -362,6 +380,11 @@ export function TripPlanner() {
     }
   }, [structuredPlan, plan?.id]);
 
+  useEffect(() => {
+    console.log("active tab:", activeTab);
+    console.log("structuredPlan keys:", Object.keys(structuredPlan || {}));
+  }, [activeTab, structuredPlan]);
+
   const s = structuredPlan;
   const meta = plan?.tripMeta;
   const originTz = hintOriginTz ?? meta?.originTz ?? "UTC";
@@ -399,14 +422,45 @@ export function TripPlanner() {
   }, [s.executiveSummary]);
 
   const flightH = meta?.flightDuration ?? flightDuration;
+  const flightHSafe = Math.max(Number(flightH) || 8, 0.25);
   const segments = s?.flightTimeline?.segments ?? [];
   const segmentWidths = useMemo(() => {
-    if (!segments.length || !flightH) return [];
+    if (!segments.length) return [];
     return segments.map((seg) => {
       const span = Math.max(0, seg.endHourOfFlight - seg.startHourOfFlight);
-      return { seg, pct: (span / flightH) * 100 };
+      return { seg, pct: (span / flightHSafe) * 100 };
     });
-  }, [segments, flightH]);
+  }, [segments, flightHSafe]);
+
+  const preflightHasCore =
+    (s.preDepartureDays?.length ?? 0) > 0 ||
+    (s.preDeparture?.length ?? 0) > 0 ||
+    !!s.sleepBanking ||
+    (s.caffeineTimelineDays?.length ?? 0) > 0 ||
+    !!s.caffeineStrategy;
+
+  const inflightStrategyText = readInFlightStrategy(s);
+
+  const inflightHasCore =
+    segmentWidths.length > 0 ||
+    inflightStrategyText.length > 0 ||
+    (s.melatoninSchedule?.length ?? 0) > 0 ||
+    !!(s.flightPlan &&
+      ((s.flightPlan.sleepWindows?.length ?? 0) > 0 ||
+        (s.flightPlan.awakeWindows?.length ?? 0) > 0 ||
+        !!s.flightPlan.melatoninOnFlight ||
+        !!s.flightPlan.mealStrategy)) ||
+    !!s.performanceFraming ||
+    !!s.flightPlan?.timesSummary;
+
+  const arrivalHasCore =
+    !!s.arrivalDay ||
+    !!(s.arrivalProtocol &&
+      Object.entries(s.arrivalProtocol).some(([k, v]) => {
+        if (k === "avoidList" && Array.isArray(v)) return v.some((x) => String(x).trim().length > 0);
+        if (Array.isArray(v)) return false;
+        return v != null && String(v).trim().length > 0;
+      }));
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "preflight", label: "Pre-flight" },
@@ -664,9 +718,9 @@ export function TripPlanner() {
               <button
                 key={t.id}
                 type="button"
-                onClick={() => setTab(t.id)}
+                onClick={() => setActiveTab(t.id)}
                 className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-wider transition ${
-                  tab === t.id
+                  activeTab === t.id
                     ? "bg-white text-black"
                     : "text-[var(--text-muted)] hover:text-white"
                 }`}
@@ -676,72 +730,13 @@ export function TripPlanner() {
             ))}
           </div>
 
-          {tab === "preflight" ? (
+          <div className="mt-8 min-h-[240px] space-y-6" role="tabpanel" aria-label={`${activeTab} tab`}>
+          {activeTab === "preflight" ? (
             <div className="space-y-8">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="panel p-6">
-                  <p className="label-caps flex items-center gap-2">
-                    <RingGlyph className="text-[var(--ready)]" />
-                    Chronotype protocol
-                  </p>
-                  <p className="mt-3 text-[14px] leading-relaxed text-[var(--text-secondary)]">{chronotypeBodyText}</p>
-                </div>
-                <div className="panel p-6">
-                  <p className="label-caps">Direction science</p>
-                  {(s.directionScience?.direction || directionLabel !== "—") ? (
-                    <p className="mt-2 text-[12px] text-[var(--text-muted)]">
-                      {s.directionScience?.direction ? String(s.directionScience.direction) : directionLabel}
-                    </p>
-                  ) : null}
-                  <ul className="mt-3 list-disc space-y-2 pl-5 text-[13px] text-[var(--text-secondary)]">
-                    {directionBullets.map((b, i) => (
-                      <li key={i}>{b}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-
-              {String(s.executiveSummary ?? "").trim() ? (
-                <div className="panel p-6 md:p-8">
-                  <h3 className="heading-font text-2xl text-white">Executive summary</h3>
-                  <p className="mt-3 text-[14px] leading-relaxed text-[var(--text-secondary)]">
-                    {executiveSummaryClean ||
-                      "We could not extract readable summary text from this saved plan. Clear trip and generate a new plan."}
-                  </p>
-                </div>
-              ) : null}
-
-              {s.sleepBanking ? (
-                <div className="panel p-6 md:p-8">
-                  <h3 className="heading-font text-2xl text-white">Sleep banking</h3>
-                  <p className="mt-3 text-[14px] leading-relaxed text-[var(--text-secondary)]">{s.sleepBanking.narrative}</p>
-                  <div className="mt-4 flex flex-wrap gap-4 text-[13px] text-white">
-                    <div className="rounded-xl border border-[var(--border)] bg-white/[0.04] px-4 py-3">
-                      Target in-bed hours: <strong>{s.sleepBanking.targetSleepHours} h</strong>
-                    </div>
-                    <div className="rounded-xl border border-[var(--border)] bg-white/[0.04] px-4 py-3">
-                      Reserve to build: <strong>~{s.sleepBanking.hoursToBankTotal} h</strong> (cap benefit ~5 h)
-                    </div>
-                  </div>
-                  <ul className="mt-4 space-y-2">
-                    {(s.sleepBanking.dailyChecklist ?? []).map((c, i) => (
-                      <li
-                        key={i}
-                        className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-white/[0.03] p-4 text-[13px] text-[var(--text-secondary)]"
-                      >
-                        <span className="mt-0.5 text-[var(--text-muted)]">□</span>
-                        <span>
-                          <span className="font-medium text-white">{c.dayLabel}</span> — target {c.targetHours} h.{" "}
-                          {c.tip}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+              {!preflightHasCore ? <TabDataFallback /> : null}
 
               <div className="space-y-4">
-                <h3 className="heading-font px-1 text-2xl text-white">Pre-departure shift (-3 to -1)</h3>
+                <h3 className="heading-font px-1 text-2xl text-white">Pre-departure (days −3 to −1)</h3>
                 <div className="flex gap-4 overflow-x-auto pb-2">
                   {(s.preDepartureDays ?? []).map((d, i) => (
                     <div
@@ -773,6 +768,35 @@ export function TripPlanner() {
                   ))}
                 </div>
               </div>
+
+              {s.sleepBanking ? (
+                <div className="panel p-6 md:p-8">
+                  <h3 className="heading-font text-2xl text-white">Sleep banking</h3>
+                  <p className="mt-3 text-[14px] leading-relaxed text-[var(--text-secondary)]">{s.sleepBanking.narrative}</p>
+                  <div className="mt-4 flex flex-wrap gap-4 text-[13px] text-white">
+                    <div className="rounded-xl border border-[var(--border)] bg-white/[0.04] px-4 py-3">
+                      Target in-bed hours: <strong>{s.sleepBanking.targetSleepHours} h</strong>
+                    </div>
+                    <div className="rounded-xl border border-[var(--border)] bg-white/[0.04] px-4 py-3">
+                      Reserve to build: <strong>~{s.sleepBanking.hoursToBankTotal} h</strong> (cap benefit ~5 h)
+                    </div>
+                  </div>
+                  <ul className="mt-4 space-y-2">
+                    {(s.sleepBanking.dailyChecklist ?? []).map((c, i) => (
+                      <li
+                        key={i}
+                        className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-white/[0.03] p-4 text-[13px] text-[var(--text-secondary)]"
+                      >
+                        <span className="mt-0.5 text-[var(--text-muted)]">□</span>
+                        <span>
+                          <span className="font-medium text-white">{c.dayLabel}</span> — target {c.targetHours} h.{" "}
+                          {c.tip}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
 
               {s.caffeineTimelineDays?.length ? (
                 <div className="panel p-6 md:p-8">
@@ -816,28 +840,63 @@ export function TripPlanner() {
                 </div>
               ) : null}
 
-              {s.melatoninSchedule?.length ? (
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="panel p-6">
-                  <h3 className="heading-font text-2xl text-white">Melatonin</h3>
-                  <p className="mt-1 text-[11px] text-[var(--text-muted)]">Educational only — confirm with your clinician.</p>
-                  <ul className="mt-4 space-y-2">
-                    {s.melatoninSchedule.map((m, i) => (
-                      <li key={i} className="text-[13px] text-[var(--text-secondary)]">
-                        Day {m.day} · {m.time} · {m.dose}
-                      </li>
+                  <p className="label-caps flex items-center gap-2">
+                    <RingGlyph className="text-[var(--ready)]" />
+                    Chronotype protocol
+                  </p>
+                  <p className="mt-3 text-[14px] leading-relaxed text-[var(--text-secondary)]">{chronotypeBodyText}</p>
+                </div>
+                <div className="panel p-6">
+                  <p className="label-caps">Direction science</p>
+                  {(s.directionScience?.direction || directionLabel !== "—") ? (
+                    <p className="mt-2 text-[12px] text-[var(--text-muted)]">
+                      {s.directionScience?.direction ? String(s.directionScience.direction) : directionLabel}
+                    </p>
+                  ) : null}
+                  <ul className="mt-3 list-disc space-y-2 pl-5 text-[13px] text-[var(--text-secondary)]">
+                    {directionBullets.map((b, i) => (
+                      <li key={i}>{b}</li>
                     ))}
                   </ul>
+                </div>
+              </div>
+
+              {String(s.executiveSummary ?? "").trim() ? (
+                <div className="panel p-6 md:p-8">
+                  <h3 className="heading-font text-2xl text-white">Executive summary</h3>
+                  <p className="mt-3 text-[14px] leading-relaxed text-[var(--text-secondary)]">
+                    {executiveSummaryClean ||
+                      "We could not extract readable summary text from this saved plan. Clear trip and generate a new plan."}
+                  </p>
                 </div>
               ) : null}
             </div>
           ) : null}
 
-          {tab === "inflight" ? (
+          {activeTab === "inflight" ? (
             <div className="space-y-8">
-              {s.performanceFraming ? (
+              {inflightStrategyText || s.performanceFraming ? (
                 <div className="panel border-[var(--ready)]/30 bg-[var(--ready)]/5 p-6 md:p-8">
-                  <h3 className="heading-font text-2xl text-white">Performance framing</h3>
-                  <p className="mt-3 text-[14px] leading-relaxed text-[var(--text-secondary)]">{s.performanceFraming}</p>
+                  <h3 className="heading-font text-2xl text-white">In-flight strategy</h3>
+                  <p className="mt-3 whitespace-pre-wrap text-[14px] leading-relaxed text-[var(--text-secondary)]">
+                    {inflightStrategyText || s.performanceFraming}
+                  </p>
+                </div>
+              ) : null}
+
+              {s.melatoninSchedule?.length ? (
+                <div className="panel p-6 md:p-8">
+                  <h3 className="heading-font text-2xl text-white">Melatonin schedule</h3>
+                  <p className="mt-1 text-[11px] text-[var(--text-muted)]">Educational only — confirm with your clinician.</p>
+                  <ul className="mt-4 space-y-2">
+                    {s.melatoninSchedule.map((m, i) => (
+                      <li key={i} className="rounded-xl border border-[var(--border)] bg-white/[0.03] px-4 py-3 text-[13px] text-[var(--text-secondary)]">
+                        <span className="font-medium text-white">Day {m.day}</span> · {m.time} · {m.dose}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
 
@@ -863,38 +922,42 @@ export function TripPlanner() {
                 </div>
               ) : null}
 
-              {segmentWidths.length ? (
-                <div className="panel p-6 md:p-8">
-                  <h3 className="heading-font text-2xl text-white">Flight timeline</h3>
-                  <p className="mt-2 text-[12px] text-[var(--text-muted)]">
-                    Bar = full flight ({flightH} h). Green sleep, yellow awake, blue wind-down, ☕ caffeine, 💊 melatonin.
-                  </p>
-                  <div className="mt-6 flex h-14 w-full overflow-hidden rounded-xl border border-[var(--border)]">
-                    {segmentWidths.map(({ seg, pct }, i) => (
-                      <div
-                        key={i}
-                        style={{ width: `${Math.max(pct, 2)}%` }}
-                        className={`relative flex min-w-0 items-center justify-center border-r border-black/20 ${segmentColor(seg)}`}
-                        title={`${seg.label} (${seg.startHourOfFlight}–${seg.endHourOfFlight}h)`}
-                      >
-                        <span className="text-[10px] font-bold text-black/80">{segmentIcon(seg)}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <ul className="mt-4 space-y-2">
-                    {segments.map((seg, i) => (
-                      <li key={i} className="text-[12px] text-[var(--text-secondary)]">
-                        <span className="text-white">{segmentIcon(seg)}</span> h{seg.startHourOfFlight}–{seg.endHourOfFlight}:{" "}
-                        {seg.label}
-                        {seg.detail ? ` — ${seg.detail}` : ""}
-                      </li>
-                    ))}
-                  </ul>
-                  {s.flightTimeline?.narrative ? (
-                    <p className="mt-4 text-[13px] leading-relaxed text-[var(--text-secondary)]">{s.flightTimeline.narrative}</p>
-                  ) : null}
-                </div>
-              ) : null}
+              <div className="panel p-6 md:p-8">
+                <h3 className="heading-font text-2xl text-white">Flight timeline</h3>
+                <p className="mt-2 text-[12px] text-[var(--text-muted)]">
+                  Bar = full flight ({flightHSafe} h). Green sleep, yellow awake, blue wind-down, ☕ caffeine, 💊 melatonin.
+                </p>
+                {segmentWidths.length ? (
+                  <>
+                    <div className="mt-6 flex h-14 w-full overflow-hidden rounded-xl border border-[var(--border)]">
+                      {segmentWidths.map(({ seg, pct }, i) => (
+                        <div
+                          key={i}
+                          style={{ width: `${Math.max(pct, 2)}%` }}
+                          className={`relative flex min-w-0 items-center justify-center border-r border-black/20 ${segmentColor(seg)}`}
+                          title={`${seg.label} (${seg.startHourOfFlight}–${seg.endHourOfFlight}h)`}
+                        >
+                          <span className="text-[10px] font-bold text-black/80">{segmentIcon(seg)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <ul className="mt-4 space-y-2">
+                      {segments.map((seg, i) => (
+                        <li key={i} className="text-[12px] text-[var(--text-secondary)]">
+                          <span className="text-white">{segmentIcon(seg)}</span> h{seg.startHourOfFlight}–{seg.endHourOfFlight}:{" "}
+                          {seg.label}
+                          {seg.detail ? ` — ${seg.detail}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p className="mt-4 text-[13px] text-[var(--text-muted)]">No timeline segments in this saved plan.</p>
+                )}
+                {s.flightTimeline?.narrative ? (
+                  <p className="mt-4 text-[13px] leading-relaxed text-[var(--text-secondary)]">{s.flightTimeline.narrative}</p>
+                ) : null}
+              </div>
 
               {s.flightPlan ? (
                 <div className="panel space-y-4 p-6 md:p-8">
@@ -928,37 +991,46 @@ export function TripPlanner() {
                   ) : null}
                 </div>
               ) : null}
+
+              {!inflightHasCore ? <TabDataFallback /> : null}
             </div>
           ) : null}
 
-          {tab === "arrival" ? (
+          {activeTab === "arrival" ? (
             <div className="space-y-6">
+              {!arrivalHasCore ? <TabDataFallback /> : null}
+
               {s.arrivalProtocol ? (
-                <div className="panel p-6 md:p-8">
-                  <h3 className="heading-font text-2xl text-white">Arrival protocol</h3>
-                  <ul className="mt-4 space-y-3 text-[14px] text-[var(--text-secondary)]">
-                    <li>
-                      <span className="text-white">Hotel / check-in:</span> {s.arrivalProtocol.hotelCheckIn}
-                    </li>
-                    <li>
-                      <span className="text-white">Nap rule:</span> {s.arrivalProtocol.napRule}
-                    </li>
-                    <li>
-                      <span className="text-white">First meal:</span> {s.arrivalProtocol.firstMeal}
-                    </li>
-                    <li>
-                      <span className="text-white">Bright light:</span> {s.arrivalProtocol.brightLightWindow}
-                    </li>
-                    <li>
-                      <span className="text-white">Exercise:</span> {s.arrivalProtocol.exercise}
-                    </li>
-                  </ul>
-                  <p className="mt-4 text-[12px] font-medium text-rose-200/90">Avoid</p>
-                  <ul className="list-disc pl-5 text-[13px] text-[var(--text-secondary)]">
-                    {(s.arrivalProtocol.avoidList ?? []).map((a, i) => (
-                      <li key={i}>{a}</li>
-                    ))}
-                  </ul>
+                <div className="space-y-4">
+                  <h3 className="heading-font px-1 text-2xl text-white">Arrival protocol</h3>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {[
+                      { title: "Hotel / check-in", body: s.arrivalProtocol.hotelCheckIn },
+                      { title: "Nap rule", body: s.arrivalProtocol.napRule },
+                      { title: "First meal", body: s.arrivalProtocol.firstMeal },
+                      { title: "Bright light", body: s.arrivalProtocol.brightLightWindow },
+                      { title: "Exercise", body: s.arrivalProtocol.exercise },
+                    ]
+                      .filter((c) => c.body != null && String(c.body).trim().length > 0)
+                      .map((c) => (
+                        <div key={c.title} className="panel p-5">
+                          <p className="label-caps text-[var(--text-muted)]">{c.title}</p>
+                          <p className="mt-2 text-[14px] leading-relaxed text-[var(--text-secondary)]">{String(c.body)}</p>
+                        </div>
+                      ))}
+                  </div>
+                  {(s.arrivalProtocol.avoidList ?? []).some((a) => String(a).trim().length > 0) ? (
+                    <div className="panel border-rose-500/30 bg-rose-500/5 p-5 md:p-6">
+                      <p className="label-caps text-rose-200/90">Avoid</p>
+                      <ul className="mt-3 list-disc space-y-2 pl-5 text-[13px] text-[var(--text-secondary)]">
+                        {(s.arrivalProtocol.avoidList ?? [])
+                          .filter((a) => String(a).trim().length > 0)
+                          .map((a, i) => (
+                            <li key={i}>{a}</li>
+                          ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               {s.arrivalDay ? (
@@ -973,7 +1045,7 @@ export function TripPlanner() {
             </div>
           ) : null}
 
-          {tab === "recovery" ? (
+          {activeTab === "recovery" ? (
             <div className="space-y-6">
               <div className="panel p-6">
                 <h3 className="heading-font text-2xl text-white">Real-time recovery</h3>
@@ -1069,6 +1141,7 @@ export function TripPlanner() {
               ) : null}
             </div>
           ) : null}
+          </div>
         </>
       ) : null}
     </div>

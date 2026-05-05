@@ -68,6 +68,8 @@ export type Phase5StructuredPlan = {
     segments: FlightTimelineSegment[];
     narrative?: string;
   };
+  /** Optional narrative from model; may also appear as in_flight_strategy in raw JSON */
+  inFlightStrategy?: string;
   arrivalProtocol?: {
     hotelCheckIn?: string;
     napRule?: string;
