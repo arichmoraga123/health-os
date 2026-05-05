@@ -180,6 +180,16 @@ export async function POST(req: Request) {
             })
             .filter(([k]) => k),
         );
+      const sleepByDay = (rows: Array<Record<string, unknown>>) => {
+        const m = new Map<string, Array<Record<string, unknown>>>();
+        for (const r of rows) {
+          const raw = String(r.day ?? r.date ?? r.timestamp ?? "");
+          const day = raw.includes("T") ? raw.slice(0, 10) : raw;
+          if (!day) continue;
+          m.set(day, [...(m.get(day) ?? []), r]);
+        }
+        return m;
+      };
       const tagsByDay = new Map<string, unknown[]>();
       for (const t of tagData) {
         const day = String(t.day ?? t.date ?? "");
@@ -255,7 +265,7 @@ export async function POST(req: Request) {
         }));
       } else {
         normalized = mergeOuraDaily(sleepData, readinessData, activityData, {
-          sleepByDay: byDay(sleepDetailed),
+          sleepByDay: sleepByDay(sleepDetailed),
           heartByDay: byDay(heartRateData),
           spo2ByDay: byDay(spo2Data),
           stressByDay: byDay(stressData),

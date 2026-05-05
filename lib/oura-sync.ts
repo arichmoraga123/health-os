@@ -77,7 +77,7 @@ export function mergeOuraDaily(
   readinessRows: Array<Record<string, unknown>>,
   activityRows: Array<Record<string, unknown>>,
   detailed: {
-    sleepByDay?: Map<string, Record<string, unknown>>;
+    sleepByDay?: Map<string, Array<Record<string, unknown>>>;
     heartByDay?: Map<string, Record<string, unknown>>;
     spo2ByDay?: Map<string, Record<string, unknown>>;
     stressByDay?: Map<string, Record<string, unknown>>;
@@ -86,6 +86,15 @@ export function mergeOuraDaily(
     sleepTimeByDay?: Map<string, Record<string, unknown>>;
   } = {},
 ): NormalizedSnapshot[] {
+  function pickMainSleepRecord(rows: Array<Record<string, unknown>> | undefined) {
+    if (!rows || rows.length === 0) return undefined;
+    const longSleep = rows.find((r) => String(r.type ?? "") === "long_sleep");
+    if (longSleep) return longSleep;
+    return [...rows].sort(
+      (a, b) => (num(b.total_sleep_duration) ?? -1) - (num(a.total_sleep_duration) ?? -1),
+    )[0];
+  }
+
   const sleepByDay = new Map<string, Record<string, unknown>>();
   for (const row of sleepRows) {
     const day = String(row.day ?? row.date ?? "");
@@ -113,7 +122,7 @@ export function mergeOuraDaily(
     const s = sleepByDay.get(date);
     const r = readinessByDay.get(date);
     const a = activityByDay.get(date);
-    const ds = detailed.sleepByDay?.get(date);
+    const ds = pickMainSleepRecord(detailed.sleepByDay?.get(date));
     const hr = detailed.heartByDay?.get(date);
     const spo2 = detailed.spo2ByDay?.get(date);
     const stress = detailed.stressByDay?.get(date);
@@ -145,7 +154,7 @@ export function mergeOuraDaily(
       timeInBed: num(ds?.time_in_bed),
       bedtimeStart: ds?.bedtime_start ? new Date(String(ds.bedtime_start)) : null,
       bedtimeEnd: ds?.bedtime_end ? new Date(String(ds.bedtime_end)) : null,
-      hrv: num(s?.average_hrv) ?? num(readContrib.hrv_balance),
+      hrv: num(ds?.average_hrv) ?? num(s?.average_hrv) ?? num(readContrib.hrv_balance),
       efficiency: num(ds?.efficiency) ?? num(s?.efficiency),
       latency:
         num(ds?.latency) != null
@@ -155,7 +164,7 @@ export function mergeOuraDaily(
             : null,
       averageBreath: num(ds?.average_breath),
       lowestHeartRate: num(ds?.lowest_heart_rate),
-      averageHeartRate: num(hr?.average_heart_rate) ?? num(ds?.average_heart_rate),
+      averageHeartRate: num(ds?.average_heart_rate) ?? num(hr?.average_heart_rate),
       maxHeartRate: num(hr?.max_heart_rate) ?? num(ds?.max_heart_rate),
       minSpo2: num(spo2?.spo2_percentage_min),
       avgSpo2: num(spo2?.average_spo2),
