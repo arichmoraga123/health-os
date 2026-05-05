@@ -109,8 +109,11 @@ export default function AICoachPage() {
     setInput("");
     setTyping(true);
     let partial = "";
-    const res = await fetch("/api/ai/chat", {
-      method: "POST",
+    const aiChatUrl = "/api/ai/chat";
+    const aiChatMethod = "POST";
+    console.log("AI coach fetch", { url: aiChatUrl, method: aiChatMethod });
+    const res = await fetch(aiChatUrl, {
+      method: aiChatMethod,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         messages: next.map((m) => ({ role: m.role, content: m.content })),
