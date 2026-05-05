@@ -8,6 +8,18 @@ import { mergeOuraDaily, type NormalizedSnapshot } from "@/lib/oura-sync";
 import { ouraFetch } from "@/lib/oura";
 import { makeMockSnapshots } from "@/lib/mock-data";
 
+function endpointDebug(name: string, payload: unknown) {
+  const rows = Array.isArray((payload as { data?: unknown[] })?.data)
+    ? ((payload as { data?: unknown[] }).data ?? [])
+    : [];
+  const first = rows[0];
+  console.log(`[sync] ${name} response`, {
+    count: rows.length,
+    keys: first && typeof first === "object" ? Object.keys(first as Record<string, unknown>) : [],
+    first,
+  });
+}
+
 function toRow(userId: string, n: NormalizedSnapshot) {
   return {
     userId,
@@ -120,6 +132,9 @@ export async function POST(req: Request) {
         readiness: Array.isArray(readinessRes?.data) ? readinessRes.data.length : 0,
         activity: Array.isArray(activityRes?.data) ? activityRes.data.length : 0,
       });
+      endpointDebug("daily_sleep", sleepRes);
+      endpointDebug("daily_readiness", readinessRes);
+      endpointDebug("daily_activity", activityRes);
       const [
         sleepDetailedRes,
         heartRateRes,
@@ -137,6 +152,13 @@ export async function POST(req: Request) {
         ouraFetch("v2/usercollection/tag", user.ouraToken, params).catch(() => ({ data: [] })),
         ouraFetch("v2/usercollection/sleep_time", user.ouraToken, params).catch(() => ({ data: [] })),
       ]);
+      endpointDebug("sleep", sleepDetailedRes);
+      endpointDebug("heartrate", heartRateRes);
+      endpointDebug("spo2", spo2Res);
+      endpointDebug("daily_stress", stressRes);
+      endpointDebug("resilience", resilienceRes);
+      endpointDebug("tag", tagRes);
+      endpointDebug("sleep_time", sleepTimeRes);
       const sleepData = Array.isArray(sleepRes?.data) ? sleepRes.data : [];
       const readinessData = Array.isArray(readinessRes?.data) ? readinessRes.data : [];
       const activityData = Array.isArray(activityRes?.data) ? activityRes.data : [];
@@ -316,15 +338,31 @@ export async function POST(req: Request) {
 
   for (const n of normalized) {
     const row = toRow(auth.userId, n);
+    console.log("[sync] DB row write", {
+      date: row.date,
+      sleepScore: row.sleepScore,
+      deepSleep: row.deepSleep,
+      remSleep: row.remSleep,
+      lightSleep: row.lightSleep,
+      efficiency: row.efficiency,
+      latency: row.latency,
+      bedtimeStart: row.bedtimeStart,
+      bedtimeEnd: row.bedtimeEnd,
+    });
     const [existing] = await db
       .select()
       .from(dailySnapshots)
       .where(and(eq(dailySnapshots.userId, auth.userId), eq(dailySnapshots.date, n.date)))
       .limit(1);
-    if (existing) {
-      await db.update(dailySnapshots).set(row).where(eq(dailySnapshots.id, existing.id));
-    } else {
-      await db.insert(dailySnapshots).values(row);
+    try {
+      if (existing) {
+        await db.update(dailySnapshots).set(row).where(eq(dailySnapshots.id, existing.id));
+      } else {
+        await db.insert(dailySnapshots).values(row);
+      }
+    } catch (e) {
+      console.error("[sync] upsert failed", { date: row.date, error: e });
+      throw e;
     }
   }
 

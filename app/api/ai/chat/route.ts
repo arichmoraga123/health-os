@@ -9,11 +9,18 @@ import {
   timezonePlans,
   users,
 } from "@/db/schema";
+import { authOptions } from "@/lib/auth";
 import { streamClaude } from "@/lib/ai";
 import { requireApiUser } from "@/lib/api-auth";
 import { dateKey } from "@/lib/utils";
+import { getServerSession } from "next-auth";
+
+export async function GET() {
+  return NextResponse.json({ status: "ok" });
+}
 
 export async function POST(request: Request) {
+  console.log("AI route hit", new Date().toISOString());
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json({ error: "ANTHROPIC_API_KEY not set" }, { status: 500 });
   }
@@ -22,7 +29,11 @@ export async function POST(request: Request) {
     const requestBody = await request.json();
     console.log("AI chat request body:", requestBody);
     const auth = await requireApiUser();
-    if ("error" in auth) return auth.error;
+    if ("error" in auth) {
+      const session = await getServerSession(authOptions);
+      console.error("AI auth failed", { hasSession: !!session, userId: session?.user?.id ?? null });
+      return auth.error;
+    }
     const { messages } = requestBody as { messages?: Array<{ role?: string; content?: string }> };
     const [user] = await db.select().from(users).where(eq(users.id, auth.userId)).limit(1);
     const snapshots = await db

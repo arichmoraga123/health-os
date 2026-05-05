@@ -4,12 +4,17 @@ import { AppShell } from "@/components/app-shell";
 import { LineChart } from "@/components/charts";
 import { getSnapshotsAsc } from "@/lib/health";
 import { askClaude } from "@/lib/ai";
-import { requireSession } from "@/lib/session";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { authOptions } from "@/lib/auth";
+import { getServerSession } from "next-auth";
+import { redirect } from "next/navigation";
 
 export default async function ReportPage() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    redirect("/");
+  }
   try {
-    const session = await requireSession();
     const snapshots = await getSnapshotsAsc(session.user!.id, 14, "UTC");
     const avg = (key: string) => {
       const vals = snapshots.map((s: any) => s[key]).filter((v: number | null | undefined) => v != null);

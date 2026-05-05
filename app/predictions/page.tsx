@@ -3,12 +3,17 @@ export const dynamic = "force-dynamic";
 import { AppShell } from "@/components/app-shell";
 import { getSnapshots } from "@/lib/health";
 import { askClaude } from "@/lib/ai";
-import { requireSession } from "@/lib/session";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { authOptions } from "@/lib/auth";
+import { getServerSession } from "next-auth";
+import { redirect } from "next/navigation";
 
 export default async function PredictionsPage() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    redirect("/");
+  }
   try {
-    const session = await requireSession();
     const snapshots = await getSnapshots(session.user!.id, 7);
     const last3 = snapshots.slice(-3);
     const score = Math.round(
