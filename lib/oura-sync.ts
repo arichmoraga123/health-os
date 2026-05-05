@@ -64,6 +64,8 @@ export type NormalizedSnapshot = {
   rawActivity: unknown;
 };
 
+let hasLoggedSleepSample = false;
+
 function num(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   const n = typeof v === "number" ? v : Number(v);
@@ -124,20 +126,33 @@ export function mergeOuraDaily(
     const activityContrib = (a?.contributors ?? {}) as Record<string, unknown>;
     const resilContrib = (resilience?.contributors ?? {}) as Record<string, unknown>;
 
+    if (!hasLoggedSleepSample && ds) {
+      hasLoggedSleepSample = true;
+      console.log("Oura sleep sample fields", {
+        keys: Object.keys(ds),
+        sample: ds,
+      });
+    }
+
     return {
       date,
       sleepScore: num(s?.score),
-      sleepDuration: num(s?.total_sleep_duration),
-      deepSleep: num(s?.deep_sleep_duration),
-      remSleep: num(s?.rem_sleep_duration),
-      lightSleep: num(s?.light_sleep_duration),
+      sleepDuration: num(ds?.total_sleep_duration) ?? num(s?.total_sleep_duration),
+      deepSleep: num(ds?.deep_sleep_duration) ?? num(s?.deep_sleep_duration),
+      remSleep: num(ds?.rem_sleep_duration) ?? num(s?.rem_sleep_duration),
+      lightSleep: num(ds?.light_sleep_duration) ?? num(s?.light_sleep_duration),
       awakeTime: num(ds?.awake_time),
       timeInBed: num(ds?.time_in_bed),
       bedtimeStart: ds?.bedtime_start ? new Date(String(ds.bedtime_start)) : null,
       bedtimeEnd: ds?.bedtime_end ? new Date(String(ds.bedtime_end)) : null,
       hrv: num(s?.average_hrv) ?? num(readContrib.hrv_balance),
-      efficiency: num(s?.efficiency),
-      latency: num(s?.latency) != null ? Math.round((num(s?.latency) ?? 0) / 60) : null,
+      efficiency: num(ds?.efficiency) ?? num(s?.efficiency),
+      latency:
+        num(ds?.latency) != null
+          ? Math.round((num(ds?.latency) ?? 0) / 60)
+          : num(s?.latency) != null
+            ? Math.round((num(s?.latency) ?? 0) / 60)
+            : null,
       averageBreath: num(ds?.average_breath),
       lowestHeartRate: num(ds?.lowest_heart_rate),
       averageHeartRate: num(hr?.average_heart_rate) ?? num(ds?.average_heart_rate),

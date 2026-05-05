@@ -14,10 +14,16 @@ import { requireApiUser } from "@/lib/api-auth";
 import { dateKey } from "@/lib/utils";
 
 export async function POST(request: Request) {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return Response.json({ error: "ANTHROPIC_API_KEY not set" }, { status: 500 });
+  }
+  console.error("API KEY present:", !!process.env.ANTHROPIC_API_KEY);
   try {
+    const requestBody = await request.json();
+    console.log("AI chat request body:", requestBody);
     const auth = await requireApiUser();
     if ("error" in auth) return auth.error;
-    const { messages } = await request.json();
+    const { messages } = requestBody as { messages?: Array<{ role?: string; content?: string }> };
     const [user] = await db.select().from(users).where(eq(users.id, auth.userId)).limit(1);
     const snapshots = await db
       .select()
@@ -95,6 +101,7 @@ ${JSON.stringify(messages)}`;
     });
     return new NextResponse(stream, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
   } catch (e) {
+    console.error("AI chat route error:", e);
     const message = e instanceof Error ? e.message : "AI chat route failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
