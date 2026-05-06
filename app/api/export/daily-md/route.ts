@@ -1,10 +1,10 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db/client";
-import { dailySnapshots, users } from "@/db/schema";
+import { users } from "@/db/schema";
+import { buildComprehensiveDailyMarkdown } from "@/lib/comprehensive-oura-md";
 import { requireApiUser } from "@/lib/api-auth";
 import { dateKeyInTimeZone } from "@/lib/dates";
-import { generateDailyMarkdown } from "@/lib/generate-daily-md";
 
 export async function GET(request: Request) {
   const auth = await requireApiUser();
@@ -13,31 +13,39 @@ export async function GET(request: Request) {
   const [user] = await db.select().from(users).where(eq(users.id, auth.userId)).limit(1);
   if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
+  if (!user.ouraToken) {
+    return NextResponse.json(
+      {
+        error:
+          "Oura token required for raw export. Connect your ring (same token used for sync) and try again.",
+      },
+      { status: 400 },
+    );
+  }
+
   const tz = user.homeTimezone || user.currentTimezone || "UTC";
   const u = new URL(request.url);
   const param = u.searchParams.get("date");
   const today = dateKeyInTimeZone(new Date(), tz);
-  const dateKey =
-    param && /^\d{4}-\d{2}-\d{2}$/.test(param) ? param : today;
+  const dateKey = param && /^\d{4}-\d{2}-\d{2}$/.test(param) ? param : today;
 
-  const [snap] = await db
-    .select()
-    .from(dailySnapshots)
-    .where(and(eq(dailySnapshots.userId, auth.userId), eq(dailySnapshots.date, dateKey)))
-    .limit(1);
+  try {
+    const md = await buildComprehensiveDailyMarkdown({
+      token: user.ouraToken,
+      dateKey,
+      userName: user.name ?? user.email,
+    });
+    const filename = `health-report-${dateKey}.md`;
 
-  if (!snap) {
-    return NextResponse.json({ error: "No snapshot for that date" }, { status: 404 });
+    return new NextResponse(md, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/markdown; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+      },
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Export failed";
+    return NextResponse.json({ error: msg }, { status: 502 });
   }
-
-  const md = generateDailyMarkdown(user, snap);
-  const filename = `health-report-${dateKey}.md`;
-
-  return new NextResponse(md, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/markdown; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${filename}"`,
-    },
-  });
 }

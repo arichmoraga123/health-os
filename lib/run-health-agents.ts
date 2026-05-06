@@ -3,6 +3,7 @@ import type { users } from "@/db/schema";
 import { isWithinLocalTimeWindow } from "@/lib/agent-schedule";
 import { createClaudeMessage } from "@/lib/ai";
 import { dateKeyInTimeZone } from "@/lib/dates";
+import { buildComprehensiveDailyMarkdown } from "@/lib/comprehensive-oura-md";
 import { generateDailyMarkdown } from "@/lib/generate-daily-md";
 import { buildEveningPrompt, buildMorningPrompt, pickLatestWithSleep } from "@/lib/health-agent-prompts";
 import { getSnapshotsAsc } from "@/lib/health";
@@ -149,14 +150,31 @@ export async function runEveningAgentForUser(
 
     if (wantsNightEmail) {
       const to = user.notificationEmail || user.email;
-      if (to && todayRow) {
-        const md = generateDailyMarkdown(user, todayRow);
+      if (to && (user.ouraToken || todayRow)) {
+        let md: string;
+        if (user.ouraToken) {
+          try {
+            md = await buildComprehensiveDailyMarkdown({
+              token: user.ouraToken,
+              dateKey: todayKey,
+              userName: user.name ?? user.email,
+            });
+          } catch {
+            md = todayRow
+              ? generateDailyMarkdown(user, todayRow)
+              : `# Health OS — ${todayKey}\n\n_Comprehensive Oura export failed; no snapshot fallback available._\n`;
+          }
+        } else if (todayRow) {
+          md = generateDailyMarkdown(user, todayRow);
+        } else {
+          md = `# Health OS — ${todayKey}\n\n_No Oura token or snapshot._\n`;
+        }
         const b64 = Buffer.from(md, "utf8").toString("base64");
         const base = process.env.NEXTAUTH_URL || "http://localhost:3000";
         const em = await sendEmail({
           to,
           subject: `Your Health Data — ${todayKey}`,
-          html: `<p>Hi ${name},</p><p>Your daily Oura health report is attached. See you on your morning brief tomorrow.</p><p><a href="${base}/dashboard">Open Health OS</a></p>`,
+          html: `<p>Hi ${name},</p><p>Your daily Oura health report is attached (full raw API export). See you on your morning brief tomorrow.</p><p><a href="${base}/dashboard">Open Health OS</a></p>`,
           attachments: [
             {
               content: b64,
@@ -173,7 +191,7 @@ export async function runEveningAgentForUser(
     const tried =
       (wantsCall ? 1 : 0) +
       (wantsEveningSms ? 1 : 0) +
-      (wantsNightEmail && !!(user.notificationEmail || user.email) && !!todayRow ? 1 : 0);
+      (wantsNightEmail && !!(user.notificationEmail || user.email) && !!(user.ouraToken || todayRow) ? 1 : 0);
     return {
       ok: tried === 0 || failures === 0,
       script: script || undefined,

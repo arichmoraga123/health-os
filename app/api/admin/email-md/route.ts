@@ -1,10 +1,10 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db/client";
-import { dailySnapshots, users } from "@/db/schema";
+import { users } from "@/db/schema";
+import { buildComprehensiveDailyMarkdown } from "@/lib/comprehensive-oura-md";
 import { dateKeyInTimeZone } from "@/lib/dates";
-import { generateDailyMarkdown } from "@/lib/generate-daily-md";
 import { insertMessageLog } from "@/lib/admin-message-log";
 import { sendEmail } from "@/lib/messaging";
 import { requireAdminApi } from "@/lib/require-admin-api";
@@ -28,21 +28,28 @@ export async function POST(request: Request) {
   const [user] = await db.select().from(users).where(eq(users.id, body.userId)).limit(1);
   if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
+  if (!user.ouraToken) {
+    return NextResponse.json({ error: "User has no Oura token" }, { status: 400 });
+  }
+
   const tz = user.homeTimezone || user.currentTimezone || "UTC";
   const today = dateKeyInTimeZone(new Date(), tz);
   const dateKey = body.date ?? today;
 
-  const [snap] = await db
-    .select()
-    .from(dailySnapshots)
-    .where(and(eq(dailySnapshots.userId, body.userId), eq(dailySnapshots.date, dateKey)))
-    .limit(1);
-
-  if (!snap) {
-    return NextResponse.json({ error: "No snapshot for that date" }, { status: 404 });
+  let md: string;
+  try {
+    md = await buildComprehensiveDailyMarkdown({
+      token: user.ouraToken,
+      dateKey,
+      userName: user.name ?? user.email,
+    });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Failed to build markdown" },
+      { status: 502 },
+    );
   }
 
-  const md = generateDailyMarkdown(user, snap);
   const to = user.notificationEmail || user.email;
   if (!to) {
     return NextResponse.json({ error: "User has no email address" }, { status: 400 });
@@ -55,7 +62,7 @@ export async function POST(request: Request) {
   const em = await sendEmail({
     to,
     subject: `Your Health Data — ${dateKey} (admin sent)`,
-    html: `<p>Hi ${name},</p><p>Your daily Oura health report is attached.</p><p><a href="${base}/dashboard">Open Health OS</a></p>`,
+    html: `<p>Hi ${name},</p><p>Your full Oura raw export is attached.</p><p><a href="${base}/dashboard">Open Health OS</a></p>`,
     attachments: [
       {
         content: b64,
@@ -80,7 +87,7 @@ export async function POST(request: Request) {
   const messageId = await insertMessageLog({
     userId: body.userId,
     type: "email",
-    content: `(Markdown report ${dateKey}) ${md.slice(0, 400)}…`,
+    content: `(Full Oura MD ${dateKey}) ${md.slice(0, 400)}…`,
     status: "sent",
   });
 
