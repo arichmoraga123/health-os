@@ -43,15 +43,21 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async jwt({ token, user }) {
-      if (user) token.userId = user.id;
+      if (user) {
+        token.userId = user.id;
+        token.email = user.email;
+      }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.userId as string;
+        if (token.email) session.user.email = token.email as string;
       }
       return session;
     },
   },
   secret: process.env.NEXTAUTH_SECRET,
 };
+
+export { ADMIN_EMAILS, isAdminEmail } from "@/lib/admin";

@@ -254,6 +254,18 @@ export const timezonePlans = pgTable("timezone_plans", {
   generatedAt: timestamp("generated_at", { withTimezone: true }).defaultNow(),
 });
 
+export const messagesLog = pgTable("messages_log", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id")
+    .references(() => users.id, { onDelete: "cascade" })
+    .notNull(),
+  type: text("type").notNull(),
+  content: text("content").notNull(),
+  status: text("status").notNull(),
+  error: text("error"),
+  sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow(),
+});
+
 export const aiConversations = pgTable("ai_conversations", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id")

@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
+import { useMemo } from "react";
 import { ExportMenuButton } from "@/components/export-menu";
+import { isAdminEmail } from "@/lib/admin";
 import { cn } from "@/lib/utils";
 
-const links = [
+const navBeforeSettings = [
   ["Dashboard", "/dashboard", "var(--sleep)"],
   ["Activities", "/activities", "var(--active)"],
   ["Report", "/report", "var(--ready)"],
@@ -16,7 +18,6 @@ const links = [
   ["Timezone", "/timezone", "var(--ready)"],
   ["Community", "/community", "var(--active)"],
   ["AI Coach", "/ai-coach", "var(--hrv)"],
-  ["Settings", "/settings", "var(--hrv)"],
 ] as const;
 
 function GearIcon({ className }: { className?: string }) {
@@ -59,6 +60,14 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const { data } = useSession();
+  const links = useMemo(() => {
+    const tail: [string, string, string][] = [];
+    if (isAdminEmail(data?.user?.email)) {
+      tail.push(["Admin", "/admin", "var(--warn)"]);
+    }
+    tail.push(["Settings", "/settings", "var(--hrv)"]);
+    return [...navBeforeSettings, ...tail];
+  }, [data?.user?.email]);
   const email = data?.user?.email ?? "guest@healthos.app";
   const initials =
     (email
