@@ -4,9 +4,8 @@ import { db } from "@/db/client";
 import { users } from "@/db/schema";
 import { buildComprehensiveDailyMarkdown } from "@/lib/comprehensive-oura-md";
 import { requireApiUser } from "@/lib/api-auth";
-import { dateKeyInTimeZone } from "@/lib/dates";
 
-export async function GET() {
+export async function GET(request: Request) {
   const auth = await requireApiUser();
   if ("error" in auth) return auth.error;
 
@@ -21,12 +20,15 @@ export async function GET() {
   }
 
   const tz = user.homeTimezone || user.currentTimezone || "UTC";
-  const today = dateKeyInTimeZone(new Date(), tz);
+  const u = new URL(request.url);
+  const paramDate = u.searchParams.get("date");
+  const testDate = "2026-05-05";
+  const dateKey = paramDate && /^\d{4}-\d{2}-\d{2}$/.test(paramDate) ? paramDate : testDate;
 
   try {
     const md = await buildComprehensiveDailyMarkdown({
       token: user.ouraToken,
-      dateKey: today,
+      dateKey,
       userName: user.name ?? user.email,
       homeTimezone: tz,
     });

@@ -66,8 +66,7 @@ function bedtimeLocalDateKey(bedtimeStart: unknown, homeTimezone: string): strin
 }
 
 function sleepMatchesDate(row: Record<string, unknown>, dateKey: string, homeTimezone: string): boolean {
-  const day = dateKeyFromRow(row);
-  if (day === dateKey) return true;
+  if (row.type !== "long_sleep") return false;
 
   const prevDateKey = format(addDays(parseISO(dateKey), -1), "yyyy-MM-dd");
   const bedtimeLocalDay = bedtimeLocalDateKey(row.bedtime_start, homeTimezone);
@@ -111,8 +110,8 @@ export function filterRowsForDate(
 
 function rangeParams(dateKey: string): { narrow: Record<string, string>; wide: Record<string, string> } {
   const d = parseISO(dateKey);
-  const prev = format(addDays(d, -1), "yyyy-MM-dd");
-  const next = format(addDays(d, 1), "yyyy-MM-dd");
+  const prev = format(addDays(d, -2), "yyyy-MM-dd");
+  const next = format(addDays(d, 2), "yyyy-MM-dd");
   return {
     narrow: { start_date: dateKey, end_date: dateKey },
     wide: { start_date: prev, end_date: next },
@@ -192,10 +191,10 @@ function pickFields(rec: Record<string, unknown>, keys: string[]): string[][] {
   return keys.map((key) => [mdEscapeCell(key), formatValue(rec[key])]);
 }
 
-function renderSleepSection(bundle: EndpointFetch[]): string {
+function renderSleepSection(bundle: EndpointFetch[], dateKey: string, homeTimezone: string): string {
   const sleepRecords = bundleData(bundle, "v2/usercollection/sleep").map(cleanRecord);
   const dailySleep = bundleData(bundle, "v2/usercollection/daily_sleep").map(cleanRecord);
-  const rec = sleepRecords[0] ?? dailySleep[0];
+  const rec = selectMainSleepRecord(sleepRecords, dateKey, homeTimezone) ?? dailySleep[0];
 
   let out = "## Sleep\n\n";
   const err = endpointError(bundle, "v2/usercollection/sleep") ?? endpointError(bundle, "v2/usercollection/daily_sleep");
@@ -230,6 +229,24 @@ function renderSleepSection(bundle: EndpointFetch[]): string {
   }
 
   return out;
+}
+
+function selectMainSleepRecord(
+  records: Record<string, unknown>[],
+  dateKey: string,
+  homeTimezone: string,
+): Record<string, unknown> | null {
+  const longSleep = records.filter((r) => r.type === "long_sleep");
+  if (!longSleep.length) return records[0] ?? null;
+  const prevDateKey = format(addDays(parseISO(dateKey), -1), "yyyy-MM-dd");
+
+  const preferPreviousLocalDay = longSleep.filter(
+    (r) => bedtimeLocalDateKey(r.bedtime_start, homeTimezone) === prevDateKey,
+  );
+  const sameLocalDay = longSleep.filter((r) => bedtimeLocalDateKey(r.bedtime_start, homeTimezone) === dateKey);
+  const pool = preferPreviousLocalDay.length ? preferPreviousLocalDay : sameLocalDay.length ? sameLocalDay : longSleep;
+  pool.sort((a, b) => (num(b.total_sleep_duration) ?? 0) - (num(a.total_sleep_duration) ?? 0));
+  return pool[0] ?? null;
 }
 
 function renderReadinessSection(bundle: EndpointFetch[]): string {
@@ -386,7 +403,7 @@ Sleep filtering uses local bedtime conversion and includes previous-day local be
 
   return [
     header,
-    renderSleepSection(bundle),
+    renderSleepSection(bundle, dateKey, homeTimezone),
     renderReadinessSection(bundle),
     renderActivitySection(bundle),
     renderHeartRateSection(bundle),

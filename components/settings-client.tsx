@@ -24,6 +24,8 @@ type Row = {
   eveningCallEnabled: boolean | null;
   nightlyEmailEnabled: boolean | null;
   email: string | null;
+  homeTimezone?: string | null;
+  currentTimezone?: string | null;
 };
 
 export function SettingsClient() {
@@ -51,7 +53,10 @@ export function SettingsClient() {
   }, []);
 
   useEffect(() => {
-    void load();
+    const t = setTimeout(() => {
+      void load();
+    }, 0);
+    return () => clearTimeout(t);
   }, [load]);
 
   const patch = async (body: Record<string, unknown>) => {
@@ -77,6 +82,7 @@ export function SettingsClient() {
 
   const saveAll = () => {
     if (!row) return;
+    const detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
     const e164 =
       national.replace(/\D/g, "").length > 0 ? `${dial}${national.replace(/\D/g, "")}` : null;
     void patch({
@@ -88,6 +94,8 @@ export function SettingsClient() {
       emailEnabled: row.emailEnabled,
       eveningCallEnabled: row.eveningCallEnabled,
       nightlyEmailEnabled: row.nightlyEmailEnabled,
+      homeTimezone: detectedTz,
+      currentTimezone: detectedTz,
     });
   };
 
