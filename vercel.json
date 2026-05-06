@@ -1,6 +1,12 @@
 {
   "crons": [
-    { "path": "/api/cron/morning-agent", "schedule": "0 * * * *" },
-    { "path": "/api/cron/evening-agent", "schedule": "30 * * * *" }
+    {
+      "path": "/api/cron/morning-agent",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/evening-agent",
+      "schedule": "0 1 * * *"
+    }
   ]
 }
