@@ -42,6 +42,7 @@ export async function POST(request: Request) {
       token: user.ouraToken,
       dateKey,
       userName: user.name ?? user.email,
+      homeTimezone: tz,
     });
   } catch (e) {
     return NextResponse.json(

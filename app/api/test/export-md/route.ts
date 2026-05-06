@@ -28,6 +28,7 @@ export async function GET() {
       token: user.ouraToken,
       dateKey: today,
       userName: user.name ?? user.email,
+      homeTimezone: tz,
     });
     return new NextResponse(md, {
       status: 200,

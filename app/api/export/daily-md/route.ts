@@ -33,10 +33,11 @@ export async function GET(request: Request) {
   const dateKey = param && /^\d{4}-\d{2}-\d{2}$/.test(param) ? param : today;
 
   try {
-    const bundle = await fetchOuraRawDayBundle(user.ouraToken, dateKey);
+    const bundle = await fetchOuraRawDayBundle(user.ouraToken, dateKey, tz);
     const md = generateComprehensiveOuraMarkdown({
       dateKey,
       displayName: user.name ?? user.email ?? "User",
+      homeTimezone: tz,
       bundle,
     });
     const filename = `health-report-${dateKey}.md`;

@@ -1,4 +1,5 @@
 import { addDays, format, parseISO } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { ouraFetch } from "@/lib/oura";
 
 const ENDPOINTS = [
@@ -21,6 +22,24 @@ export type EndpointFetch = {
   error?: string;
 };
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function mdEscapeCell(s: string): string {
+  return s.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 500);
+}
+
+function formatValue(v: unknown): string {
+  if (v == null || v === "") return "—";
+  if (typeof v === "number") return Number.isFinite(v) ? String(v) : "—";
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (typeof v === "string") return mdEscapeCell(v);
+  if (Array.isArray(v)) return `[${v.length} items]`;
+  if (isPlainObject(v)) return "[object]";
+  return mdEscapeCell(String(v));
+}
+
 function dateKeyFromRow(row: Record<string, unknown>): string | null {
   const raw = row.day ?? row.date;
   if (raw == null || raw === "") return null;
@@ -35,15 +54,51 @@ function timestampDay(ts: unknown): string | null {
   return null;
 }
 
-/** Keep rows that belong to this calendar day (Oura `day` / `date` / timestamp prefix). */
-export function filterRowsForDate(rows: Record<string, unknown>[], dateKey: string): Record<string, unknown>[] {
+function bedtimeLocalDateKey(bedtimeStart: unknown, homeTimezone: string): string | null {
+  if (typeof bedtimeStart !== "string" || bedtimeStart.length < 10) return null;
+  const d = new Date(bedtimeStart);
+  if (Number.isNaN(d.getTime())) return null;
+  try {
+    return formatInTimeZone(d, homeTimezone, "yyyy-MM-dd");
+  } catch {
+    return null;
+  }
+}
+
+function sleepMatchesDate(row: Record<string, unknown>, dateKey: string, homeTimezone: string): boolean {
+  const day = dateKeyFromRow(row);
+  if (day === dateKey) return true;
+
+  const prevDateKey = format(addDays(parseISO(dateKey), -1), "yyyy-MM-dd");
+  const bedtimeLocalDay = bedtimeLocalDateKey(row.bedtime_start, homeTimezone);
+  if (bedtimeLocalDay === dateKey || bedtimeLocalDay === prevDateKey) return true;
+
+  return false;
+}
+
+/**
+ * Keep rows for this calendar day.
+ * Sleep rows additionally use bedtime_start converted to home timezone and include previous local-day bedtimes.
+ */
+export function filterRowsForDate(
+  rows: Record<string, unknown>[],
+  dateKey: string,
+  homeTimezone: string,
+  path?: OuraEndpointName,
+): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
   for (const row of rows) {
+    if (path === "v2/usercollection/sleep" && sleepMatchesDate(row, dateKey, homeTimezone)) {
+      out.push(row);
+      continue;
+    }
+
     const d = dateKeyFromRow(row);
     if (d === dateKey) {
       out.push(row);
       continue;
     }
+
     const ts =
       timestampDay(row.timestamp) ??
       timestampDay(row.start_datetime) ??
@@ -54,7 +109,6 @@ export function filterRowsForDate(rows: Record<string, unknown>[], dateKey: stri
   return out;
 }
 
-/** Sleep / HR / workout often need ±1 day window then filter to wake day `dateKey`. */
 function rangeParams(dateKey: string): { narrow: Record<string, string>; wide: Record<string, string> } {
   const d = parseISO(dateKey);
   const prev = format(addDays(d, -1), "yyyy-MM-dd");
@@ -75,10 +129,7 @@ async function fetchEndpoint(
     const raw = Array.isArray((res as { data?: unknown })?.data)
       ? ((res as { data: unknown[] }).data ?? [])
       : [];
-    const data = raw.filter((x): x is Record<string, unknown> => x !== null && typeof x === "object") as Record<
-      string,
-      unknown
-    >[];
+    const data = raw.filter((x): x is Record<string, unknown> => isPlainObject(x));
     return { params, data };
   } catch (e) {
     return {
@@ -95,215 +146,267 @@ const USE_WIDE_RANGE: ReadonlySet<OuraEndpointName> = new Set([
   "v2/usercollection/workout",
 ]);
 
-/**
- * Fetches all requested Oura collections for a calendar day.
- * Uses narrow date for daily summaries; wide ±1 day for sleep / heartrate / workout then filters.
- */
-export async function fetchOuraRawDayBundle(token: string, dateKey: string): Promise<EndpointFetch[]> {
+export async function fetchOuraRawDayBundle(
+  token: string,
+  dateKey: string,
+  homeTimezone: string,
+): Promise<EndpointFetch[]> {
   const { narrow, wide } = rangeParams(dateKey);
-
   return Promise.all(
     ENDPOINTS.map(async (path) => {
       const params = USE_WIDE_RANGE.has(path) ? wide : narrow;
       const r = await fetchEndpoint(path, token, params);
-      const rows = filterRowsForDate(r.data as Record<string, unknown>[], dateKey);
+      const rows = filterRowsForDate(r.data, dateKey, homeTimezone, path);
       return { ...r, path, params, data: rows };
     }),
   );
 }
 
-function mdEscapeCell(s: string): string {
-  return s.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 8000);
+function bundleData(bundle: EndpointFetch[], path: OuraEndpointName): Record<string, unknown>[] {
+  const endpoint = bundle.find((b) => b.path === path);
+  return endpoint?.data ?? [];
 }
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
+function endpointError(bundle: EndpointFetch[], path: OuraEndpointName): string | undefined {
+  return bundle.find((b) => b.path === path)?.error;
 }
 
-/** Flatten nested objects into markdown tables (limited depth). */
-function renderKeyValues(obj: Record<string, unknown>, depth = 0, title?: string): string {
-  if (depth > 4) return `\`${JSON.stringify(obj)}\`\n\n`;
-  const lines: string[] = [];
-  if (title) lines.push(`#### ${title}\n`);
-  lines.push("| Field | Value |");
-  lines.push("| --- | --- |");
-  for (const [k, v] of Object.entries(obj)) {
-    lines.push(`| ${mdEscapeCell(k)} | ${renderValueCell(v, depth)} |`);
+function cleanRecord(rec: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(rec)) {
+    if (k === "producer_timestamp") continue;
+    next[k] = v;
   }
-  return `${lines.join("\n")}\n\n`;
+  return next;
 }
 
-function renderValueCell(v: unknown, depth: number): string {
-  if (v === null || v === undefined) return "—";
-  if (typeof v === "boolean" || typeof v === "number") return String(v);
-  if (typeof v === "string") {
-    const s = v.length > 400 ? `${v.slice(0, 400)}… (${v.length} chars)` : v;
-    return mdEscapeCell(s);
-  }
-  if (Array.isArray(v)) {
-    if (v.length === 0) return "`[]`";
-    if (v.every((x) => typeof x === "number")) {
-      return `${v.length} values → see **Arrays** section`;
-    }
-    return `\`${JSON.stringify(v).slice(0, 300)}${JSON.stringify(v).length > 300 ? "…" : ""}\``;
-  }
-  if (isPlainObject(v)) return `\`${JSON.stringify(v).slice(0, 240)}…\` _(object)_`;
-  return mdEscapeCell(String(v));
+function compactTable(headers: string[], rows: string[][]): string {
+  if (!rows.length) return "_No data available._\n\n";
+  const head = `| ${headers.join(" | ")} |`;
+  const sep = `| ${headers.map(() => "---").join(" | ")} |`;
+  const body = rows.map((r) => `| ${r.join(" | ")} |`).join("\n");
+  return `${head}\n${sep}\n${body}\n\n`;
 }
 
-function renderNumberArray(name: string, arr: number[], maxRows = 500): string {
-  if (!arr.length) return "";
-  const lines: string[] = [`### ${name} (${arr.length} samples)\n`];
-  lines.push("| # | Value |");
-  lines.push("| --- | --- |");
-  const show = arr.slice(0, maxRows);
-  show.forEach((n, i) => lines.push(`| ${i + 1} | ${n} |`));
-  if (arr.length > maxRows) {
-    lines.push(`\n_… ${arr.length - maxRows} more values omitted (total ${arr.length})_\n`);
-  }
-  lines.push("");
-  return lines.join("\n");
+function pickFields(rec: Record<string, unknown>, keys: string[]): string[][] {
+  return keys.map((key) => [mdEscapeCell(key), formatValue(rec[key])]);
 }
 
-function coerceNumberArray(v: unknown): number[] | null {
-  if (!Array.isArray(v)) return null;
-  const nums = v.map((x) => (typeof x === "number" ? x : Number(x))).filter((x) => Number.isFinite(x));
-  return nums.length === v.length ? nums : null;
-}
+function renderSleepSection(bundle: EndpointFetch[]): string {
+  const sleepRecords = bundleData(bundle, "v2/usercollection/sleep").map(cleanRecord);
+  const dailySleep = bundleData(bundle, "v2/usercollection/daily_sleep").map(cleanRecord);
+  const rec = sleepRecords[0] ?? dailySleep[0];
 
-/** Hypnogram / movement strings — full content in fenced block. */
-function renderLongString(label: string, s: string): string {
-  return `### ${label}\n\n\`\`\`text\n${s}\n\`\`\`\n\n`;
-}
+  let out = "## Sleep\n\n";
+  const err = endpointError(bundle, "v2/usercollection/sleep") ?? endpointError(bundle, "v2/usercollection/daily_sleep");
+  if (err) out += `⚠️ ${mdEscapeCell(err)}\n\n`;
+  if (!rec) return `${out}_No sleep data available._\n\n`;
 
-function extractArraysFromSleepRecord(rec: Record<string, unknown>): string {
-  let out = "";
-  const phase = rec.sleep_phase_5_min;
-  if (typeof phase === "string" && phase.length > 0) {
-    out += renderLongString("Sleep phase hypnogram (`sleep_phase_5_min`)", phase);
-  }
-  const hrv5 = rec.hrv_5_min ?? rec.hrv_samples;
-  const nums = coerceNumberArray(hrv5);
-  if (nums) out += renderNumberArray("HRV sample series (`hrv_5_min` / night)", nums);
-  else if (hrv5 != null) out += `### HRV night data\n\n\`\`\`json\n${JSON.stringify(hrv5, null, 2).slice(0, 12000)}\n\`\`\`\n\n`;
+  out += compactTable(
+    ["Field", "Value"],
+    pickFields(rec, [
+      "day",
+      "bedtime_start",
+      "bedtime_end",
+      "total_sleep_duration",
+      "time_in_bed",
+      "sleep_efficiency",
+      "sleep_score",
+      "deep_sleep_duration",
+      "light_sleep_duration",
+      "rem_sleep_duration",
+      "awake_time",
+      "latency",
+      "restless_periods",
+    ]),
+  );
 
-  const movement = rec.movement_30_sec ?? rec.movement;
-  if (typeof movement === "string" && movement.length > 0) {
-    out += renderLongString("Movement (`movement_30_sec`)", movement.slice(0, 50000));
-  }
-
-  const hrDetail = rec.heart_rate;
-  if (hrDetail != null) {
-    out += `### Heart rate detail object\n\n${renderKeyValues(isPlainObject(hrDetail as object) ? (hrDetail as Record<string, unknown>) : { value: hrDetail as unknown })}\n`;
-  }
-
-  const intervals = rec.items ?? rec.samples;
-  if (Array.isArray(intervals) && intervals.length) {
-    out += `### Interval samples (first ${Math.min(50, intervals.length)})\n\n\`\`\`json\n${JSON.stringify(intervals.slice(0, 50), null, 2)}\n\`\`\`\n\n`;
+  const hypnogram = typeof rec.sleep_phase_5_min === "string" ? rec.sleep_phase_5_min : "";
+  if (hypnogram) {
+    out += "### Sleep phases\n\n";
+    out += "Hypnogram (`sleep_phase_5_min`):\n\n";
+    out += `\`${hypnogram}\`\n\n`;
+    out += "Legend: 1=deep, 2=light, 3=REM, 4=awake.\n\n";
   }
 
   return out;
 }
 
-function endpointTitle(path: OuraEndpointName): string {
-  return path.replace("v2/usercollection/", "").replace(/_/g, " ");
+function renderReadinessSection(bundle: EndpointFetch[]): string {
+  const rec = cleanRecord(bundleData(bundle, "v2/usercollection/daily_readiness")[0] ?? {});
+  let out = "## Readiness\n\n";
+  const err = endpointError(bundle, "v2/usercollection/daily_readiness");
+  if (err) out += `⚠️ ${mdEscapeCell(err)}\n\n`;
+  if (!Object.keys(rec).length) return `${out}_No readiness data available._\n\n`;
+
+  const contributors = isPlainObject(rec.contributors) ? rec.contributors : {};
+  out += compactTable(
+    ["Contributor", "Value"],
+    Object.entries(contributors)
+      .filter(([k]) => k !== "producer_timestamp")
+      .map(([k, v]) => [mdEscapeCell(k), formatValue(v)]),
+  );
+  return out;
 }
 
-function renderEndpointSection(fetch: EndpointFetch): string {
-  const title = endpointTitle(fetch.path);
-  let body = `## ${title}\n\n`;
-  if (fetch.error) {
-    body += `⚠️ **Fetch error:** ${mdEscapeCell(fetch.error)}\n\n`;
-    return body;
-  }
-  if (!fetch.data.length) {
-    body += `_No records for this date after filtering._\n\n`;
-    return body;
-  }
+function renderActivitySection(bundle: EndpointFetch[]): string {
+  const rec = cleanRecord(bundleData(bundle, "v2/usercollection/daily_activity")[0] ?? {});
+  let out = "## Activity\n\n";
+  const err = endpointError(bundle, "v2/usercollection/daily_activity");
+  if (err) out += `⚠️ ${mdEscapeCell(err)}\n\n`;
+  if (!Object.keys(rec).length) return `${out}_No activity data available._\n\n`;
 
-  fetch.data.forEach((rec, idx) => {
-    body += `### Record ${idx + 1}\n\n`;
-    const contributors = rec.contributors;
-    const base: Record<string, unknown> = { ...rec };
-    if (contributors != null) delete base.contributors;
-
-    body += renderKeyValues(base, 0, "Scalars");
-
-    if (isPlainObject(contributors)) {
-      body += renderKeyValues(contributors, 1, "Contributors");
-    }
-
-    if (fetch.path === "v2/usercollection/sleep") {
-      body += extractArraysFromSleepRecord(rec);
-    }
-
-    if (fetch.path === "v2/usercollection/heartrate") {
-      for (const key of Object.keys(rec)) {
-        const val = rec[key];
-        const arr = coerceNumberArray(val);
-        if (arr && arr.length > 5) {
-          body += renderNumberArray(`Series \`${key}\``, arr, 400);
-        }
-      }
-    }
-
-    const rawJson = JSON.stringify(rec, null, 2);
-    const maxJson =
-      fetch.path === "v2/usercollection/sleep"
-        ? 28000
-        : fetch.path === "v2/usercollection/heartrate"
-          ? 20000
-          : 16000;
-    body += `#### Complete record (JSON)\n\n\`\`\`json\n${
-      rawJson.length > maxJson ? `${rawJson.slice(0, maxJson)}\n… _(truncated, ${rawJson.length} chars total)_` : rawJson
-    }\n\`\`\`\n\n`;
-  });
-
-  return body;
+  out += compactTable(
+    ["Field", "Value"],
+    pickFields(rec, [
+      "day",
+      "score",
+      "steps",
+      "active_calories",
+      "total_calories",
+      "equivalent_walking_distance",
+      "high_activity_met_minutes",
+      "medium_activity_met_minutes",
+      "low_activity_met_minutes",
+      "inactive_time",
+      "resting_time",
+    ]),
+  );
+  return out;
 }
 
-/**
- * Builds a single downloadable markdown file with all raw Oura payloads for the day.
- */
+function num(v: unknown): number | null {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function renderHeartRateSection(bundle: EndpointFetch[]): string {
+  const rows = bundleData(bundle, "v2/usercollection/heartrate").map(cleanRecord);
+  let out = "## Heart rate\n\n";
+  const err = endpointError(bundle, "v2/usercollection/heartrate");
+  if (err) out += `⚠️ ${mdEscapeCell(err)}\n\n`;
+  if (!rows.length) return `${out}_No heart rate data available._\n\n`;
+
+  const bpms = rows.map((r) => num(r.bpm)).filter((x): x is number => x !== null);
+  if (!bpms.length) return `${out}_Heart rate rows present but no BPM values were found._\n\n`;
+
+  const avg = Math.round(bpms.reduce((a, b) => a + b, 0) / bpms.length);
+  const min = Math.min(...bpms);
+  const max = Math.max(...bpms);
+  out += `Avg: ${avg}bpm, Min: ${min}bpm, Max: ${max}bpm\n\n`;
+
+  const maxRows = 20;
+  out += compactTable(
+    ["timestamp", "bpm", "source"],
+    rows.slice(0, maxRows).map((r) => [
+      formatValue(r.timestamp),
+      formatValue(r.bpm),
+      formatValue(r.source),
+    ]),
+  );
+  if (rows.length > maxRows) {
+    out += `... and ${rows.length - maxRows} more readings\n\n`;
+  }
+  return out;
+}
+
+function renderHrvSection(bundle: EndpointFetch[]): string {
+  const sleepRecords = bundleData(bundle, "v2/usercollection/sleep").map(cleanRecord);
+  let values: number[] = [];
+  for (const rec of sleepRecords) {
+    if (Array.isArray(rec.hrv_5_min)) {
+      values = values.concat(rec.hrv_5_min.map(num).filter((x): x is number => x !== null));
+    }
+  }
+
+  let out = "## HRV\n\n";
+  if (!values.length) return `${out}_No HRV series available._\n\n`;
+
+  const avg = Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  out += `Avg: ${avg}ms, Min: ${min}ms, Max: ${max}ms\n\n`;
+
+  const maxRows = 20;
+  out += compactTable(
+    ["sample", "hrv_ms"],
+    values.slice(0, maxRows).map((v, idx) => [String(idx + 1), String(v)]),
+  );
+  if (values.length > maxRows) {
+    out += `... and ${values.length - maxRows} more samples\n\n`;
+  }
+  return out;
+}
+
+function renderOtherEndpoints(bundle: EndpointFetch[]): string {
+  const others: OuraEndpointName[] = [
+    "v2/usercollection/workout",
+    "v2/usercollection/daily_stress",
+    "v2/usercollection/sleep_time",
+  ];
+  let out = "";
+  for (const path of others) {
+    const rows = bundleData(bundle, path).map(cleanRecord);
+    const err = endpointError(bundle, path);
+    const title = path.replace("v2/usercollection/", "").replace(/_/g, " ");
+    out += `## ${title}\n\n`;
+    if (err) out += `⚠️ ${mdEscapeCell(err)}\n\n`;
+    if (!rows.length) {
+      out += "_No data available._\n\n";
+      continue;
+    }
+    const rec = rows[0];
+    const keys = Object.keys(rec)
+      .filter((k) => k !== "contributors" && !Array.isArray(rec[k]) && !isPlainObject(rec[k]))
+      .slice(0, 12);
+    out += compactTable(["Field", "Value"], pickFields(rec, keys));
+  }
+  return out;
+}
+
 export function generateComprehensiveOuraMarkdown(opts: {
   dateKey: string;
   displayName: string;
+  homeTimezone: string;
   bundle: EndpointFetch[];
 }): string {
-  const { dateKey, displayName, bundle } = opts;
-  const header = `# Oura raw health export — ${dateKey}
+  const { dateKey, displayName, homeTimezone, bundle } = opts;
+  const header = `# Oura health export — ${dateKey}
 
-**Generated by Health OS** · ${displayName}  
+**User:** ${displayName}  
+**Home timezone:** ${homeTimezone}  
 **Generated at:** ${new Date().toISOString()}
 
-This report combines **unaltered API responses** from Oura Cloud (via your worker) for the calendar day **${dateKey}**.  
-Daily summaries use \`start_date = end_date = ${dateKey}\`. Detailed sleep / heart rate / workouts use a ±1 day fetch window and are filtered to this day.
+This export is formatted for human readability and LLM ingestion.  
+Sleep filtering uses local bedtime conversion and includes previous-day local bedtimes when relevant.
 
 ---
 
 `;
 
-  const sections = bundle.map(renderEndpointSection).join("\n");
-
-  const footer = `
----
-
-*Data sourced from Oura Ring API v2 collections.*  
-*Endpoints: ${ENDPOINTS.join(", ")}*
-`;
-
-  return `${header}${sections}${footer}`;
+  return [
+    header,
+    renderSleepSection(bundle),
+    renderReadinessSection(bundle),
+    renderActivitySection(bundle),
+    renderHeartRateSection(bundle),
+    renderHrvSection(bundle),
+    renderOtherEndpoints(bundle),
+  ].join("");
 }
 
 export async function buildComprehensiveDailyMarkdown(opts: {
   token: string;
   dateKey: string;
   userName?: string | null;
+  homeTimezone?: string | null;
 }): Promise<string> {
-  const bundle = await fetchOuraRawDayBundle(opts.token, opts.dateKey);
+  const homeTimezone = opts.homeTimezone?.trim() || "UTC";
+  const bundle = await fetchOuraRawDayBundle(opts.token, opts.dateKey, homeTimezone);
   return generateComprehensiveOuraMarkdown({
     dateKey: opts.dateKey,
     displayName: opts.userName?.trim() || "User",
+    homeTimezone,
     bundle,
   });
 }

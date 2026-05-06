@@ -158,6 +158,7 @@ export async function runEveningAgentForUser(
               token: user.ouraToken,
               dateKey: todayKey,
               userName: user.name ?? user.email,
+              homeTimezone: tz,
             });
           } catch {
             md = todayRow

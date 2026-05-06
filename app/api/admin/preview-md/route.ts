@@ -34,6 +34,7 @@ export async function GET(request: Request) {
       token: user.ouraToken,
       dateKey,
       userName: user.name ?? user.email,
+      homeTimezone: tz,
     });
     return NextResponse.json({ markdown, date: dateKey });
   } catch (e) {
