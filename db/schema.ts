@@ -19,6 +19,15 @@ export const users = pgTable("users", {
   homeTimezone: text("home_timezone"),
   currentTimezone: text("current_timezone"),
   pushSubscription: jsonb("push_subscription"),
+  phoneNumber: text("phone_number"),
+  phoneVerified: boolean("phone_verified").default(false),
+  morningMessageTime: text("morning_message_time").default("10:00"),
+  eveningCallTime: text("evening_call_time").default("21:00"),
+  smsEnabled: boolean("sms_enabled").default(true),
+  emailEnabled: boolean("email_enabled").default(true),
+  eveningCallEnabled: boolean("evening_call_enabled").default(true),
+  nightlyEmailEnabled: boolean("nightly_email_enabled").default(true),
+  notificationEmail: text("notification_email"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

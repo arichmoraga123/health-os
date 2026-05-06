@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
+import { ExportMenuButton } from "@/components/export-menu";
 import { cn } from "@/lib/utils";
 
 const links = [
@@ -15,7 +16,28 @@ const links = [
   ["Timezone", "/timezone", "var(--ready)"],
   ["Community", "/community", "var(--active)"],
   ["AI Coach", "/ai-coach", "var(--hrv)"],
+  ["Settings", "/settings", "var(--hrv)"],
 ] as const;
+
+function GearIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+    </svg>
+  );
+}
 
 const mobileMain = [
   ["/dashboard", "Home"],
@@ -70,7 +92,16 @@ export function AppShell({
                     : undefined
                 }
               >
-                <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color as string }} />
+                {label === "Settings" ? (
+                  <GearIcon
+                    className={cn(
+                      "size-4 shrink-0",
+                      active ? "text-white" : "text-[var(--text-secondary)]",
+                    )}
+                  />
+                ) : (
+                  <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color as string }} />
+                )}
                 {label}
               </Link>
             );
@@ -91,12 +122,7 @@ export function AppShell({
                 >
                   Sign out
                 </button>
-                <button
-                  type="button"
-                  className="btn btn-outline !px-3 !py-2 !text-[11px]"
-                >
-                  Export
-                </button>
+                <ExportMenuButton />
               </div>
             </div>
           </div>

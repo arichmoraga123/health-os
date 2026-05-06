@@ -10,6 +10,7 @@ import { dateKeyInTimeZone } from "@/lib/dates";
 import type { DailySnapshotRow } from "@/lib/health";
 import { formatBedtimeRange, pickTodayRow, prevRow } from "@/lib/health";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { PhoneOnboardingBanner } from "@/components/phone-onboarding-banner";
 import { TripRecoveryWidget } from "@/components/trip-recovery-widget";
 
 const RANGES = [7, 14, 30, 90] as const;
@@ -225,6 +226,7 @@ export function DashboardClient({
         </>
       }
     >
+      <PhoneOnboardingBanner />
       {snapshots.length === 0 && (
         <section className="panel p-6 text-[13px] text-[var(--text-secondary)]">
           No Oura data yet. Click <span className="text-white">Sync now</span> to import your latest metrics.

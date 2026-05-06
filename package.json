@@ -13,6 +13,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.93.0",
     "@neondatabase/serverless": "^1.1.0",
+    "@sendgrid/mail": "^8.1.6",
     "chart.js": "^4.5.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
@@ -26,6 +27,7 @@
     "react": "19.2.4",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "19.2.4",
+    "twilio": "^6.0.0",
     "web-push": "^3.6.7",
     "ws": "^8.20.0",
     "zod": "^4.4.3"

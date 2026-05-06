@@ -3,11 +3,15 @@ import { NextResponse } from "next/server";
 import { db } from "@/db/client";
 import { dailyAiBriefs, users } from "@/db/schema";
 import { askClaude } from "@/lib/ai";
+import { verifyCronRequest } from "@/lib/cron-auth";
 import { ouraFetch } from "@/lib/oura";
 import { sendPush } from "@/lib/push";
 import { dateKey } from "@/lib/utils";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const deny = verifyCronRequest(req);
+  if (deny) return deny;
+
   const allUsers = await db.select().from(users).where(isNotNull(users.ouraToken));
   for (const user of allUsers) {
     try {
