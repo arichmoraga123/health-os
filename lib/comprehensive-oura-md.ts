@@ -200,7 +200,7 @@ function renderSleepSection(bundle: EndpointFetch[], dateKey: string, homeTimezo
     ? {
         ...rec,
         sleep_score: matchingDaily?.score ?? rec.sleep_score,
-        sleep_efficiency: matchingDaily?.efficiency ?? rec.sleep_efficiency,
+        sleep_efficiency: rec.efficiency ?? rec.sleep_efficiency,
       }
     : rec;
 
@@ -348,14 +348,21 @@ function renderHeartRateSection(bundle: EndpointFetch[]): string {
 function renderHrvSection(bundle: EndpointFetch[], dateKey: string, homeTimezone: string): string {
   let out = "## HRV\n\n";
   const sleepRecords = bundleData(bundle, "v2/usercollection/sleep").map(cleanRecord);
-  const source = selectMainSleepRecord(sleepRecords, dateKey, homeTimezone) ?? sleepRecords[0];
-  const hrv = source && isPlainObject(source.hrv) ? source.hrv : null;
+  const mainSleep = selectMainSleepRecord(sleepRecords, dateKey, homeTimezone) ?? sleepRecords[0];
+  console.log("[comprehensive-oura-md] mainSleep.hrv", mainSleep?.hrv);
+  const hrv = mainSleep && isPlainObject(mainSleep.hrv) ? mainSleep.hrv : null;
   const items = hrv && Array.isArray(hrv.items) ? hrv.items : [];
-  const values = items
-    .map((it) => (isPlainObject(it) ? num(it.hrv) : null))
-    .filter((x): x is number => x !== null);
+  const rows = items
+    .map((item, idx) => {
+      const value = num(item);
+      if (value === null) return null;
+      return { offset: idx * 5, value };
+    })
+    .filter((r): r is { offset: number; value: number } => r !== null);
 
-  if (!values.length) return `${out}_No HRV series available._\n\n`;
+  if (!rows.length) return `${out}_No HRV series available._\n\n`;
+
+  const values = rows.map((r) => r.value);
 
   const avg = Math.round(values.reduce((a, b) => a + b, 0) / values.length);
   const min = Math.min(...values);
@@ -365,10 +372,10 @@ function renderHrvSection(bundle: EndpointFetch[], dateKey: string, homeTimezone
   const maxRows = 20;
   out += compactTable(
     ["time_offset_minutes", "hrv_ms"],
-    values.slice(0, maxRows).map((v, idx) => [String(idx * 5), String(v)]),
+    rows.slice(0, maxRows).map((r) => [String(r.offset), String(r.value)]),
   );
-  if (values.length > maxRows) {
-    out += `... and ${values.length - maxRows} more samples\n\n`;
+  if (rows.length > maxRows) {
+    out += `... and ${rows.length - maxRows} more samples\n\n`;
   }
   return out;
 }
