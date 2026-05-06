@@ -196,7 +196,7 @@ function renderSleepSection(bundle: EndpointFetch[], dateKey: string, homeTimezo
   const dailySleep = bundleData(bundle, "v2/usercollection/daily_sleep").map(cleanRecord);
   const rec = selectMainSleepRecord(sleepRecords, dateKey, homeTimezone) ?? dailySleep[0];
   const matchingDaily = findMatchingDailySleepRecord(rec, dailySleep);
-  const merged = rec
+  const merged: Record<string, unknown> | null = rec
     ? {
         ...rec,
         sleep_score: matchingDaily?.score ?? rec.sleep_score,
