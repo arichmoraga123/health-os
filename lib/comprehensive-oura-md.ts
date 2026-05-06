@@ -195,15 +195,23 @@ function renderSleepSection(bundle: EndpointFetch[], dateKey: string, homeTimezo
   const sleepRecords = bundleData(bundle, "v2/usercollection/sleep").map(cleanRecord);
   const dailySleep = bundleData(bundle, "v2/usercollection/daily_sleep").map(cleanRecord);
   const rec = selectMainSleepRecord(sleepRecords, dateKey, homeTimezone) ?? dailySleep[0];
+  const matchingDaily = findMatchingDailySleepRecord(rec, dailySleep);
+  const merged = rec
+    ? {
+        ...rec,
+        sleep_score: matchingDaily?.score ?? rec.sleep_score,
+        sleep_efficiency: matchingDaily?.efficiency ?? rec.sleep_efficiency,
+      }
+    : rec;
 
   let out = "## Sleep\n\n";
   const err = endpointError(bundle, "v2/usercollection/sleep") ?? endpointError(bundle, "v2/usercollection/daily_sleep");
   if (err) out += `⚠️ ${mdEscapeCell(err)}\n\n`;
-  if (!rec) return `${out}_No sleep data available._\n\n`;
+  if (!merged) return `${out}_No sleep data available._\n\n`;
 
   out += compactTable(
     ["Field", "Value"],
-    pickFields(rec, [
+    pickFields(merged, [
       "day",
       "bedtime_start",
       "bedtime_end",
@@ -220,7 +228,7 @@ function renderSleepSection(bundle: EndpointFetch[], dateKey: string, homeTimezo
     ]),
   );
 
-  const hypnogram = typeof rec.sleep_phase_5_min === "string" ? rec.sleep_phase_5_min : "";
+  const hypnogram = typeof merged.sleep_phase_5_min === "string" ? merged.sleep_phase_5_min : "";
   if (hypnogram) {
     out += "### Sleep phases\n\n";
     out += "Hypnogram (`sleep_phase_5_min`):\n\n";
@@ -229,6 +237,16 @@ function renderSleepSection(bundle: EndpointFetch[], dateKey: string, homeTimezo
   }
 
   return out;
+}
+
+function findMatchingDailySleepRecord(
+  mainSleep: Record<string, unknown> | null,
+  dailySleep: Record<string, unknown>[],
+): Record<string, unknown> | null {
+  if (!mainSleep) return null;
+  const mainDay = dateKeyFromRow(mainSleep);
+  if (!mainDay) return dailySleep[0] ?? null;
+  return dailySleep.find((r) => dateKeyFromRow(r) === mainDay) ?? dailySleep[0] ?? null;
 }
 
 function selectMainSleepRecord(
@@ -327,16 +345,16 @@ function renderHeartRateSection(bundle: EndpointFetch[]): string {
   return out;
 }
 
-function renderHrvSection(bundle: EndpointFetch[]): string {
-  const sleepRecords = bundleData(bundle, "v2/usercollection/sleep").map(cleanRecord);
-  let values: number[] = [];
-  for (const rec of sleepRecords) {
-    if (Array.isArray(rec.hrv_5_min)) {
-      values = values.concat(rec.hrv_5_min.map(num).filter((x): x is number => x !== null));
-    }
-  }
-
+function renderHrvSection(bundle: EndpointFetch[], dateKey: string, homeTimezone: string): string {
   let out = "## HRV\n\n";
+  const sleepRecords = bundleData(bundle, "v2/usercollection/sleep").map(cleanRecord);
+  const source = selectMainSleepRecord(sleepRecords, dateKey, homeTimezone) ?? sleepRecords[0];
+  const hrv = source && isPlainObject(source.hrv) ? source.hrv : null;
+  const items = hrv && Array.isArray(hrv.items) ? hrv.items : [];
+  const values = items
+    .map((it) => (isPlainObject(it) ? num(it.hrv) : null))
+    .filter((x): x is number => x !== null);
+
   if (!values.length) return `${out}_No HRV series available._\n\n`;
 
   const avg = Math.round(values.reduce((a, b) => a + b, 0) / values.length);
@@ -346,8 +364,8 @@ function renderHrvSection(bundle: EndpointFetch[]): string {
 
   const maxRows = 20;
   out += compactTable(
-    ["sample", "hrv_ms"],
-    values.slice(0, maxRows).map((v, idx) => [String(idx + 1), String(v)]),
+    ["time_offset_minutes", "hrv_ms"],
+    values.slice(0, maxRows).map((v, idx) => [String(idx * 5), String(v)]),
   );
   if (values.length > maxRows) {
     out += `... and ${values.length - maxRows} more samples\n\n`;
@@ -407,7 +425,7 @@ Sleep filtering uses local bedtime conversion and includes previous-day local be
     renderReadinessSection(bundle),
     renderActivitySection(bundle),
     renderHeartRateSection(bundle),
-    renderHrvSection(bundle),
+    renderHrvSection(bundle, dateKey, homeTimezone),
     renderOtherEndpoints(bundle),
   ].join("");
 }
