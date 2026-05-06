@@ -2,7 +2,10 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db/client";
 import { users } from "@/db/schema";
-import { buildComprehensiveDailyMarkdown } from "@/lib/comprehensive-oura-md";
+import {
+  fetchOuraRawDayBundle,
+  generateComprehensiveOuraMarkdown,
+} from "@/lib/comprehensive-oura-md";
 import { requireApiUser } from "@/lib/api-auth";
 import { dateKeyInTimeZone } from "@/lib/dates";
 
@@ -30,17 +33,18 @@ export async function GET(request: Request) {
   const dateKey = param && /^\d{4}-\d{2}-\d{2}$/.test(param) ? param : today;
 
   try {
-    const md = await buildComprehensiveDailyMarkdown({
-      token: user.ouraToken,
+    const bundle = await fetchOuraRawDayBundle(user.ouraToken, dateKey);
+    const md = generateComprehensiveOuraMarkdown({
       dateKey,
-      userName: user.name ?? user.email,
+      displayName: user.name ?? user.email ?? "User",
+      bundle,
     });
     const filename = `health-report-${dateKey}.md`;
 
     return new NextResponse(md, {
       status: 200,
       headers: {
-        "Content-Type": "text/markdown; charset=utf-8",
+        "Content-Type": "text/markdown",
         "Content-Disposition": `attachment; filename="${filename}"`,
       },
     });
