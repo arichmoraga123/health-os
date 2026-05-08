@@ -16,93 +16,99 @@ function nextDayKey(dateKey: string): string {
   return dt.toISOString().slice(0, 10);
 }
 
+function isReconnectError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("insufficient authentication scopes") ||
+    m.includes("insufficient_scope") ||
+    m.includes("invalid_grant") ||
+    m.includes("token has been expired or revoked") ||
+    m.includes("invalid_token") ||
+    m.includes("unauthorized_client") ||
+    m.includes("invalid credentials") ||
+    m.includes("scope") ||
+    m.includes("reconnect")
+  );
+}
+
 export async function POST(request: Request) {
   const auth = await requireApiUser();
   if ("error" in auth) return auth.error;
 
-  const user = await getUserById(auth.userId);
-  if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
-
-  const tokenDiag = await getCalendarTokenDiagnostics(auth.userId);
-  console.log("[reconcile-calendar] token diagnostics", {
-    userId: auth.userId,
-    ...tokenDiag,
-  });
-
-  const has = await userHasGoogleCalendarTokens(auth.userId);
-  if (!has) {
-    return NextResponse.json(
-      {
-        error: "Connect Google Calendar in Settings first.",
-        unmatched: [],
-        tokenDiag,
-      },
-      { status: 400 },
-    );
-  }
-
-  const tz = user.currentTimezone || user.homeTimezone || "UTC";
-
-  let body: { date?: string } = {};
   try {
-    body = await request.json();
-  } catch {
-    body = {};
-  }
-  const dateKey =
-    body.date && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : dateKeyInTimeZone(new Date(), tz);
+    const user = await getUserById(auth.userId);
+    if (!user) {
+      return Response.json({ error: "User not found" }, { status: 404 });
+    }
 
-  let startUtc: Date;
-  let endUtc: Date;
-  try {
-    startUtc = localToUtc(dateKey, "00:00", tz);
-    endUtc = localToUtc(nextDayKey(dateKey), "00:00", tz);
-  } catch (e) {
-    console.error("[reconcile-calendar] time conversion failed", { dateKey, tz, error: e });
-    return NextResponse.json(
-      {
-        error: `Time conversion failed for ${dateKey} (${tz})`,
-        detail: e instanceof Error ? e.message : String(e),
-      },
-      { status: 500 },
-    );
-  }
+    const tokenDiag = await getCalendarTokenDiagnostics(auth.userId);
+    console.log("[reconcile-calendar] token diagnostics", {
+      userId: auth.userId,
+      ...tokenDiag,
+    });
 
-  console.log("[reconcile-calendar] querying Google Calendar", {
-    userId: auth.userId,
-    dateKey,
-    tz,
-    timeMin: startUtc.toISOString(),
-    timeMax: endUtc.toISOString(),
-  });
+    const has = await userHasGoogleCalendarTokens(auth.userId);
+    if (!has) {
+      return Response.json(
+        {
+          error: "Google Calendar is not connected. Reconnect from Settings to grant calendar.events scope.",
+          reconnectRequired: true,
+          reconnectUrl: "/api/calendar/auth",
+          unmatched: [],
+          tokenDiag,
+        },
+        { status: 400 },
+      );
+    }
 
-  try {
+    const tz = user.currentTimezone || user.homeTimezone || "UTC";
+
+    let body: { date?: string } = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const dateKey =
+      body.date && /^\d{4}-\d{2}-\d{2}$/.test(body.date)
+        ? body.date
+        : dateKeyInTimeZone(new Date(), tz);
+
+    const startUtc = localToUtc(dateKey, "00:00", tz);
+    const endUtc = localToUtc(nextDayKey(dateKey), "00:00", tz);
+
+    console.log("[reconcile-calendar] querying Google Calendar", {
+      userId: auth.userId,
+      dateKey,
+      tz,
+      timeMin: startUtc.toISOString(),
+      timeMax: endUtc.toISOString(),
+    });
+
     const unmatched = await listUnmatchedCalendarEvents(auth.userId, startUtc, endUtc);
     console.log("[reconcile-calendar] success", {
       userId: auth.userId,
       dateKey,
       unmatchedCount: unmatched.length,
     });
-    return NextResponse.json({ ok: true, date: dateKey, unmatched });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    return Response.json({ ok: true, date: dateKey, unmatched });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const reconnectRequired = isReconnectError(message);
     console.error("[reconcile-calendar] failed", {
       userId: auth.userId,
-      dateKey,
-      tz,
-      tokenDiag,
       error: message,
-      stack: e instanceof Error ? e.stack : undefined,
+      reconnectRequired,
+      stack: error instanceof Error ? error.stack : undefined,
     });
-    return NextResponse.json(
+    return Response.json(
       {
         error: message,
-        date: dateKey,
-        timezone: tz,
-        tokenDiag,
+        reconnectRequired,
+        reconnectUrl: reconnectRequired ? "/api/calendar/auth" : undefined,
         unmatched: [],
       },
-      { status: 502 },
+      { status: 500 },
     );
   }
 }

@@ -80,6 +80,7 @@ export function AttentionPageClient({
   const [toast, setToast] = useState<string | null>(null);
   const [unmatched, setUnmatched] = useState<UnmatchedEvent[] | null>(null);
   const [reconciling, setReconciling] = useState(false);
+  const [reconnectRequired, setReconnectRequired] = useState(false);
   const [calendarBusy, setCalendarBusy] = useState(false);
   const [prefill, setPrefill] = useState<Partial<ServerLog> | null>(null);
 
@@ -140,8 +141,12 @@ export function AttentionPageClient({
         synced?: number;
         errors?: number;
         error?: string;
+        reconnectRequired?: boolean;
       };
-      if (!res.ok) throw new Error(j.error ?? "Sync failed");
+      if (!res.ok) {
+        if (j.reconnectRequired) setReconnectRequired(true);
+        throw new Error(j.error ?? "Sync failed");
+      }
       flash(`Synced ${j.synced ?? 0} events${j.errors ? ` (${j.errors} errors)` : ""}`);
       await refresh();
     } catch (e) {
@@ -153,6 +158,7 @@ export function AttentionPageClient({
 
   async function reconcile() {
     setReconciling(true);
+    setReconnectRequired(false);
     try {
       const res = await fetch("/api/attention/reconcile-calendar", {
         method: "POST",
@@ -162,8 +168,12 @@ export function AttentionPageClient({
       const j = (await res.json().catch(() => ({}))) as {
         unmatched?: UnmatchedEvent[];
         error?: string;
+        reconnectRequired?: boolean;
       };
-      if (!res.ok) throw new Error(j.error ?? "Reconcile failed");
+      if (!res.ok) {
+        if (j.reconnectRequired) setReconnectRequired(true);
+        throw new Error(j.error ?? "Reconcile failed");
+      }
       setUnmatched(j.unmatched ?? []);
     } catch (e) {
       flash(e instanceof Error ? e.message : "Reconcile failed");
@@ -346,6 +356,18 @@ export function AttentionPageClient({
             </button>
           </div>
 
+          {reconnectRequired ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--warn)]/40 bg-[var(--warn)]/5 p-3 text-[12px] text-[var(--text-secondary)]">
+              <span>
+                Google Calendar is missing the <code>calendar.events</code> scope (or your token was revoked).
+                Reconnect to grant the right permissions.
+              </span>
+              <a href="/api/calendar/auth" className="btn btn-primary !px-4 !py-2 !text-[11px]">
+                Reconnect Google Calendar
+              </a>
+            </div>
+          ) : null}
+
           {unmatched ? (
             <div className="mt-4 space-y-2">
               {unmatched.length === 0 ? (
@@ -420,6 +442,66 @@ export function AttentionPageClient({
   );
 }
 
+function TimelineBlock({
+  log,
+  top,
+  height,
+  color,
+  tooltipText,
+  onClick,
+}: {
+  log: ServerLog;
+  top: number;
+  height: number;
+  color: string;
+  tooltipText: string;
+  onClick: () => void;
+}) {
+  const isShort = height < 6;
+  return (
+    <div
+      className="group absolute left-0 right-0 box-border max-w-full"
+      style={{ top: `${top}%`, height: `${height}%` }}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        title={tooltipText}
+        aria-label={tooltipText}
+        className="block h-full w-full max-w-full overflow-hidden rounded-md px-2 py-1 text-left text-[11px] text-white transition-opacity hover:opacity-90"
+        style={{
+          background: `${color}26`,
+          borderLeft: `3px solid ${color}`,
+        }}
+      >
+        <div className="block w-full max-w-full overflow-hidden text-ellipsis whitespace-nowrap font-medium">
+          {log.activity}
+        </div>
+        {!isShort ? (
+          <div className="block w-full max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[10px] opacity-80">
+            {log.startLocal}–{log.endLocal} · {log.category}
+          </div>
+        ) : null}
+      </button>
+      <div className="pointer-events-none invisible absolute left-1/2 top-full z-20 mt-1 w-max max-w-[280px] -translate-x-1/2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[11px] leading-relaxed text-white shadow-xl group-hover:visible group-focus-within:visible">
+        <div className="font-semibold">{log.activity}</div>
+        <div className="mt-0.5 text-[var(--text-secondary)]">
+          {log.startLocal}–{log.endLocal} · {log.category}
+        </div>
+        {log.withPerson ? (
+          <div className="mt-0.5 text-[var(--text-muted)]">With: {log.withPerson}</div>
+        ) : null}
+        {log.location ? (
+          <div className="mt-0.5 text-[var(--text-muted)]">Location: {log.location}</div>
+        ) : null}
+        {log.notes ? (
+          <div className="mt-0.5 whitespace-pre-wrap text-[var(--text-muted)]">Notes: {log.notes}</div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function Timeline({
   logs,
   onEdit,
@@ -432,14 +514,14 @@ function Timeline({
   const totalMinutes = TIMELINE_HOURS * 60;
   return (
     <div className="space-y-3">
-      <div className="relative h-[420px] rounded-xl border border-[var(--border)] bg-white/[0.02]">
+      <div className="relative h-[420px] overflow-hidden rounded-xl border border-[var(--border)] bg-white/[0.02]">
         {Array.from({ length: TIMELINE_HOURS + 1 }).map((_, i) => {
           const top = (i / TIMELINE_HOURS) * 100;
           const hour = TIMELINE_START_HOUR + i;
           return (
             <div
               key={i}
-              className="absolute left-0 right-0 flex items-center gap-2 text-[10px] text-[var(--text-muted)]"
+              className="pointer-events-none absolute left-0 right-0 flex items-center gap-2 text-[10px] text-[var(--text-muted)]"
               style={{ top: `${top}%` }}
             >
               <span className="w-10 shrink-0 pl-1">
@@ -449,7 +531,7 @@ function Timeline({
             </div>
           );
         })}
-        <div className="absolute inset-y-0 left-12 right-2">
+        <div className="absolute inset-y-0 left-12 right-2 overflow-hidden">
           {logs.map((log) => {
             const startMin = hhmmToMinutes(log.startLocal) - TIMELINE_START_HOUR * 60;
             const endMinRaw = hhmmToMinutes(log.endLocal) - TIMELINE_START_HOUR * 60;
@@ -457,25 +539,23 @@ function Timeline({
             const top = Math.max(0, (startMin / totalMinutes) * 100);
             const height = Math.max(2, ((endMin - startMin) / totalMinutes) * 100);
             const color = CATEGORY_HEX[log.category] ?? "#6b7280";
+            const tooltipParts = [
+              `${log.activity}`,
+              `${log.startLocal}–${log.endLocal} · ${log.category}`,
+              log.withPerson ? `With: ${log.withPerson}` : null,
+              log.location ? `Location: ${log.location}` : null,
+              log.notes ? `Notes: ${log.notes}` : null,
+            ].filter((s): s is string => !!s);
             return (
-              <button
+              <TimelineBlock
                 key={log.id}
-                type="button"
+                log={log}
+                top={top}
+                height={height}
+                color={color}
+                tooltipText={tooltipParts.join("\n")}
                 onClick={() => onEdit(log)}
-                className="absolute left-0 right-0 overflow-hidden rounded-md px-2 py-1 text-left text-[11px] text-white transition-opacity hover:opacity-90"
-                style={{
-                  top: `${top}%`,
-                  height: `${height}%`,
-                  background: `${color}26`,
-                  borderLeft: `3px solid ${color}`,
-                }}
-                title={`${log.activity} (${log.category})`}
-              >
-                <div className="truncate font-medium">{log.activity}</div>
-                <div className="truncate text-[10px] opacity-80">
-                  {log.startLocal}–{log.endLocal} · {log.category}
-                </div>
-              </button>
+              />
             );
           })}
         </div>

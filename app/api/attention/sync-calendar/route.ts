@@ -22,7 +22,11 @@ export async function POST(request: Request) {
   const has = await userHasGoogleCalendarTokens(auth.userId);
   if (!has) {
     return NextResponse.json(
-      { error: "Connect Google Calendar in Settings first." },
+      {
+        error: "Google Calendar is not connected. Reconnect from Settings to grant calendar.events scope.",
+        reconnectRequired: true,
+        reconnectUrl: "/api/calendar/auth",
+      },
       { status: 400 },
     );
   }
