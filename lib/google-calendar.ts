@@ -73,9 +73,76 @@ export async function userHasGoogleCalendarTokens(userId: string): Promise<boole
   return !!(row?.accessToken || row?.refreshToken);
 }
 
-export async function getCalendarClient(userId: string) {
-  const [row] = await db.select().from(googleCalendarTokens).where(eq(googleCalendarTokens.userId, userId)).limit(1);
-  if (!row?.refreshToken && !row?.accessToken) return null;
+export type CalendarTokenDiagnostics = {
+  hasRow: boolean;
+  hasAccessToken: boolean;
+  hasRefreshToken: boolean;
+  expiryIso: string | null;
+  expired: boolean | null;
+};
+
+export async function getCalendarTokenDiagnostics(userId: string): Promise<CalendarTokenDiagnostics> {
+  const [row] = await db
+    .select()
+    .from(googleCalendarTokens)
+    .where(eq(googleCalendarTokens.userId, userId))
+    .limit(1);
+  if (!row) {
+    return {
+      hasRow: false,
+      hasAccessToken: false,
+      hasRefreshToken: false,
+      expiryIso: null,
+      expired: null,
+    };
+  }
+  const expiryMs = row.expiry ? row.expiry.getTime() : null;
+  return {
+    hasRow: true,
+    hasAccessToken: !!row.accessToken,
+    hasRefreshToken: !!row.refreshToken,
+    expiryIso: row.expiry ? row.expiry.toISOString() : null,
+    expired: expiryMs == null ? null : expiryMs < Date.now() + 120_000,
+  };
+}
+
+function googleApiErrorMessage(e: unknown, prefix: string): string {
+  if (!e) return `${prefix}: unknown error`;
+  if (typeof e === "string") return `${prefix}: ${e}`;
+  if (e instanceof Error) {
+    const inner = e as Error & { response?: { data?: unknown } };
+    const data = inner.response?.data;
+    if (data && typeof data === "object") {
+      try {
+        return `${prefix}: ${e.message} — ${JSON.stringify(data)}`;
+      } catch {
+        return `${prefix}: ${e.message}`;
+      }
+    }
+    return `${prefix}: ${e.message}`;
+  }
+  try {
+    return `${prefix}: ${JSON.stringify(e)}`;
+  } catch {
+    return `${prefix}: ${String(e)}`;
+  }
+}
+
+/** Returns a configured google.calendar client. Throws with a detailed reason on failure. */
+export async function getCalendarClientOrThrow(userId: string) {
+  const [row] = await db
+    .select()
+    .from(googleCalendarTokens)
+    .where(eq(googleCalendarTokens.userId, userId))
+    .limit(1);
+  if (!row) {
+    throw new Error("No Google Calendar token row for user — connect Google Calendar in Settings.");
+  }
+  if (!row.refreshToken && !row.accessToken) {
+    throw new Error(
+      "Google Calendar token row exists but has no access or refresh token — reconnect in Settings.",
+    );
+  }
 
   const redirectUri = getGoogleOAuthRedirectUri();
   const oauth = getOAuthClient(redirectUri);
@@ -105,12 +172,27 @@ export async function getCalendarClient(userId: string) {
         refresh_token: row.refreshToken ?? undefined,
         expiry_date: credentials.expiry_date,
       });
-    } catch {
-      return null;
+    } catch (e) {
+      throw new Error(
+        googleApiErrorMessage(e, "Google token refresh failed (reconnect in Settings)"),
+      );
     }
+  } else if (!row.refreshToken && expired) {
+    throw new Error(
+      "Google Calendar access token expired and no refresh token is stored — reconnect in Settings.",
+    );
   }
 
   return google.calendar({ version: "v3", auth: oauth });
+}
+
+export async function getCalendarClient(userId: string) {
+  try {
+    return await getCalendarClientOrThrow(userId);
+  } catch (e) {
+    console.error("[google-calendar] getCalendarClient failed", e);
+    return null;
+  }
 }
 
 export async function deleteSleepEvent(userId: string, wakeDayDateKey: string): Promise<void> {
@@ -378,26 +460,34 @@ export async function listUnmatchedCalendarEvents(
   rangeStartUtc: Date,
   rangeEndUtc: Date,
 ): Promise<ExternalCalendarEvent[]> {
-  const calendar = await getCalendarClient(userId);
-  if (!calendar) return [];
+  const calendar = await getCalendarClientOrThrow(userId);
 
   const knownIds = new Set<string>();
-  const known = await db
-    .select({ googleEventId: attentionLogs.googleEventId })
-    .from(attentionLogs)
-    .where(eq(attentionLogs.userId, userId));
-  for (const row of known) {
-    if (row.googleEventId) knownIds.add(row.googleEventId);
+  try {
+    const known = await db
+      .select({ googleEventId: attentionLogs.googleEventId })
+      .from(attentionLogs)
+      .where(eq(attentionLogs.userId, userId));
+    for (const row of known) {
+      if (row.googleEventId) knownIds.add(row.googleEventId);
+    }
+  } catch (e) {
+    throw new Error(googleApiErrorMessage(e, "Failed to load attention_logs for reconcile"));
   }
 
-  const res = await calendar.events.list({
-    calendarId: "primary",
-    singleEvents: true,
-    orderBy: "startTime",
-    timeMin: rangeStartUtc.toISOString(),
-    timeMax: rangeEndUtc.toISOString(),
-    maxResults: 250,
-  });
+  let res;
+  try {
+    res = await calendar.events.list({
+      calendarId: "primary",
+      singleEvents: true,
+      orderBy: "startTime",
+      timeMin: rangeStartUtc.toISOString(),
+      timeMax: rangeEndUtc.toISOString(),
+      maxResults: 250,
+    });
+  } catch (e) {
+    throw new Error(googleApiErrorMessage(e, "Google Calendar events.list failed"));
+  }
 
   const events = res.data.items ?? [];
   const unmatched: ExternalCalendarEvent[] = [];
