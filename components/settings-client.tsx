@@ -69,7 +69,7 @@ export function SettingsClient() {
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search);
       if (p.get("calendar") === "connected") {
-        setNote("Google Calendar connected.");
+        setTimeout(() => setNote("Google Calendar connected."), 0);
       }
     }
   }, []);
