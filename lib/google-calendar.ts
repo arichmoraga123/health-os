@@ -2,13 +2,16 @@ import { formatInTimeZone } from "date-fns-tz";
 import { eq } from "drizzle-orm";
 import { google } from "googleapis";
 import { db } from "@/db/client";
-import { googleCalendarTokens } from "@/db/schema";
+import { attentionLogs, googleCalendarTokens } from "@/db/schema";
+import { type AttentionLogRow, getCategoryColorId } from "@/lib/attention";
 import { dateKeyInTimeZone } from "@/lib/dates";
 import { pickTodayRow, prevRow, type DailySnapshotRow } from "@/lib/health";
 import { getGoogleOAuthRedirectUri, getOAuthClient } from "@/lib/google";
 
 const SLEEP_LOG_PRIVATE_KEY = "healthOsWakeDay";
 const SLEEP_LOG_MARKER = "healthOsSleepLog";
+const ATTENTION_LOG_MARKER = "healthOsAttention";
+const ATTENTION_LOG_ID_KEY = "healthOsAttentionId";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -255,4 +258,171 @@ export function pickSleepRowForCalendarLog(
     readinessRow,
     wakeDayDateKey: String(sleepRow.date),
   };
+}
+
+/** Create a Google Calendar event for an attention log entry. Returns the new googleEventId. */
+export async function createAttentionEvent(
+  userId: string,
+  log: AttentionLogRow,
+): Promise<string | null> {
+  const calendar = await getCalendarClient(userId);
+  if (!calendar) return null;
+
+  const start = new Date(log.startUtc);
+  const end = new Date(log.endUtc);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+
+  const description = [
+    `Category: ${log.category}`,
+    `With: ${log.withPerson || "Alone"}`,
+    log.notes ? "" : null,
+    log.notes ?? null,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n")
+    .trim();
+
+  const insert = await calendar.events.insert({
+    calendarId: "primary",
+    requestBody: {
+      summary: log.activity,
+      description,
+      start: { dateTime: start.toISOString(), timeZone: "UTC" },
+      end: { dateTime: end.toISOString(), timeZone: "UTC" },
+      colorId: getCategoryColorId(log.category),
+      visibility: "private",
+      extendedProperties: {
+        private: {
+          [ATTENTION_LOG_MARKER]: "1",
+          [ATTENTION_LOG_ID_KEY]: log.id,
+        },
+      },
+    },
+  });
+
+  return insert.data.id ?? null;
+}
+
+/** Update an existing Google Calendar attention event. */
+export async function updateAttentionEvent(
+  userId: string,
+  log: AttentionLogRow,
+): Promise<string | null> {
+  if (!log.googleEventId) return createAttentionEvent(userId, log);
+  const calendar = await getCalendarClient(userId);
+  if (!calendar) return null;
+
+  const start = new Date(log.startUtc);
+  const end = new Date(log.endUtc);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+
+  const description = [
+    `Category: ${log.category}`,
+    `With: ${log.withPerson || "Alone"}`,
+    log.notes ? "" : null,
+    log.notes ?? null,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n")
+    .trim();
+
+  try {
+    const res = await calendar.events.update({
+      calendarId: "primary",
+      eventId: log.googleEventId,
+      requestBody: {
+        summary: log.activity,
+        description,
+        start: { dateTime: start.toISOString(), timeZone: "UTC" },
+        end: { dateTime: end.toISOString(), timeZone: "UTC" },
+        colorId: getCategoryColorId(log.category),
+        visibility: "private",
+        extendedProperties: {
+          private: {
+            [ATTENTION_LOG_MARKER]: "1",
+            [ATTENTION_LOG_ID_KEY]: log.id,
+          },
+        },
+      },
+    });
+    return res.data.id ?? log.googleEventId;
+  } catch {
+    return createAttentionEvent(userId, log);
+  }
+}
+
+/** Best-effort delete of a Google Calendar event. */
+export async function deleteCalendarEvent(userId: string, eventId: string): Promise<boolean> {
+  const calendar = await getCalendarClient(userId);
+  if (!calendar) return false;
+  try {
+    await calendar.events.delete({ calendarId: "primary", eventId });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export type ExternalCalendarEvent = {
+  id: string;
+  title: string;
+  description: string | null;
+  startUtc: string;
+  endUtc: string;
+  location: string | null;
+};
+
+/** Fetch primary-calendar events that aren't already synced from Health OS attention logs. */
+export async function listUnmatchedCalendarEvents(
+  userId: string,
+  rangeStartUtc: Date,
+  rangeEndUtc: Date,
+): Promise<ExternalCalendarEvent[]> {
+  const calendar = await getCalendarClient(userId);
+  if (!calendar) return [];
+
+  const knownIds = new Set<string>();
+  const known = await db
+    .select({ googleEventId: attentionLogs.googleEventId })
+    .from(attentionLogs)
+    .where(eq(attentionLogs.userId, userId));
+  for (const row of known) {
+    if (row.googleEventId) knownIds.add(row.googleEventId);
+  }
+
+  const res = await calendar.events.list({
+    calendarId: "primary",
+    singleEvents: true,
+    orderBy: "startTime",
+    timeMin: rangeStartUtc.toISOString(),
+    timeMax: rangeEndUtc.toISOString(),
+    maxResults: 250,
+  });
+
+  const events = res.data.items ?? [];
+  const unmatched: ExternalCalendarEvent[] = [];
+
+  for (const ev of events) {
+    if (!ev.id) continue;
+    const priv = ev.extendedProperties?.private;
+    // Skip Health OS-managed events (sleep + already-synced attention)
+    if (priv?.[SLEEP_LOG_MARKER] === "1") continue;
+    if (priv?.[ATTENTION_LOG_MARKER] === "1") continue;
+    if (knownIds.has(ev.id)) continue;
+
+    const startStr = ev.start?.dateTime ?? ev.start?.date;
+    const endStr = ev.end?.dateTime ?? ev.end?.date;
+    if (!startStr || !endStr) continue;
+
+    unmatched.push({
+      id: ev.id,
+      title: ev.summary ?? "(no title)",
+      description: ev.description ?? null,
+      startUtc: new Date(startStr).toISOString(),
+      endUtc: new Date(endStr).toISOString(),
+      location: ev.location ?? null,
+    });
+  }
+
+  return unmatched;
 }

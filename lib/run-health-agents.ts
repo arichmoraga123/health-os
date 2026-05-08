@@ -2,7 +2,8 @@ import type { InferSelectModel } from "drizzle-orm";
 import type { users } from "@/db/schema";
 import { isWithinLocalTimeWindow } from "@/lib/agent-schedule";
 import { createClaudeMessage } from "@/lib/ai";
-import { dateKeyInTimeZone } from "@/lib/dates";
+import { generateAttentionMarkdownDay, getLogsForDate } from "@/lib/attention";
+import { dateKeyInTimeZone, yesterdayKeyInZone } from "@/lib/dates";
 import { buildComprehensiveDailyMarkdown } from "@/lib/comprehensive-oura-md";
 import { createSleepEvent, pickSleepRowForCalendarLog, userHasGoogleCalendarTokens } from "@/lib/google-calendar";
 import { generateDailyMarkdown } from "@/lib/generate-daily-md";
@@ -68,7 +69,7 @@ export async function runMorningAgentForUser(
     const msg = await createClaudeMessage({
       system: "Reply with only the brief text — no title, no markdown fences.",
       messages: [{ role: "user", content: prompt }],
-      maxTokens: 900,
+      maxTokens: 1400,
     });
     const brief = msg.content.map((c) => ("text" in c ? c.text : "")).join("").trim();
 
@@ -95,8 +96,52 @@ export async function runMorningAgentForUser(
           },
           appBase,
         );
-        const subj = `Good morning ${name} — Your Health Brief for ${todayKey}`;
-        const em = await sendEmail({ to, subject: subj, html, text: brief });
+        const subj = `Good morning ${name} — Health Brief for ${todayKey}`;
+
+        const yesterdayKey = yesterdayKeyInZone(tz);
+        const attachments: { content: string; filename: string; type: string; disposition: string }[] = [];
+
+        if (user.ouraToken) {
+          try {
+            const md = await buildComprehensiveDailyMarkdown({
+              token: user.ouraToken,
+              dateKey: yesterdayKey,
+              userName: user.name ?? user.email,
+              homeTimezone: tz,
+            });
+            attachments.push({
+              content: Buffer.from(md, "utf8").toString("base64"),
+              filename: `health-report-${yesterdayKey}.md`,
+              type: "text/markdown",
+              disposition: "attachment",
+            });
+          } catch (e) {
+            console.error("[morning agent] Oura MD build failed", e);
+          }
+        }
+
+        try {
+          const yLogs = await getLogsForDate(user.id, yesterdayKey);
+          if (yLogs.length > 0) {
+            const md = generateAttentionMarkdownDay(yLogs, yesterdayKey);
+            attachments.push({
+              content: Buffer.from(md, "utf8").toString("base64"),
+              filename: `attention-${yesterdayKey}.md`,
+              type: "text/markdown",
+              disposition: "attachment",
+            });
+          }
+        } catch (e) {
+          console.error("[morning agent] attention MD build failed", e);
+        }
+
+        const em = await sendEmail({
+          to,
+          subject: subj,
+          html,
+          text: brief,
+          attachments: attachments.length ? attachments : undefined,
+        });
         if (em.error) failures += 1;
       }
     }

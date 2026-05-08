@@ -277,3 +277,24 @@ export const aiConversations = pgTable("ai_conversations", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+
+export const attentionLogs = pgTable("attention_logs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id")
+    .references(() => users.id, { onDelete: "cascade" })
+    .notNull(),
+  date: date("date").notNull(),
+  startUtc: timestamp("start_utc", { withTimezone: true }).notNull(),
+  endUtc: timestamp("end_utc", { withTimezone: true }).notNull(),
+  startLocal: text("start_local").notNull(),
+  endLocal: text("end_local").notNull(),
+  location: text("location"),
+  timezone: text("timezone").notNull(),
+  withPerson: text("with_person"),
+  activity: text("activity").notNull(),
+  category: text("category").notNull(),
+  notes: text("notes"),
+  googleEventId: text("google_event_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});

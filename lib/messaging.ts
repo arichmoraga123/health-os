@@ -88,7 +88,10 @@ export function generateMorningEmailHtml(
       </tr></table>
     </td></tr>
     <tr><td style="padding-top:24px;color:#d1d5db;font-family:system-ui,sans-serif;font-size:15px;line-height:1.6;white-space:pre-wrap;">${brief.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</td></tr>
-    <tr><td style="padding-top:32px;">
+    <tr><td style="padding-top:18px;color:#9ca3af;font-family:system-ui,sans-serif;font-size:13px;line-height:1.6;">
+      Your sleep data and attention log from yesterday are attached.
+    </td></tr>
+    <tr><td style="padding-top:24px;">
       <a href="${appUrl.replace(/\/$/, "")}/dashboard" style="display:inline-block;background:#22c55e;color:#052e16;font-weight:600;padding:12px 20px;border-radius:10px;text-decoration:none;font-family:system-ui,sans-serif;font-size:14px;">View full dashboard →</a>
     </td></tr>
     <tr><td style="padding-top:24px;font-size:11px;color:#6b7280;font-family:system-ui,sans-serif;">

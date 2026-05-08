@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { AttentionTrackerWidget } from "@/components/attention-tracker-widget";
 import { BarChart, LineChart } from "@/components/charts";
 import { DailyBriefCard } from "@/components/daily-brief-card";
 import { DashboardScoreCard } from "@/components/dashboard-score-card";
@@ -281,6 +282,8 @@ export function DashboardClient({
       <ErrorBoundary>
         <div className="space-y-6">
           <DailyBriefCard dateKey={todayKey} initial={briefProps} />
+
+          <AttentionTrackerWidget />
 
           <TripRecoveryWidget />
 

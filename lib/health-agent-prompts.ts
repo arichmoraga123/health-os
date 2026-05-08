@@ -55,7 +55,7 @@ export function buildMorningPrompt(
 
   const yesterdayActivity = [...rows].reverse().find((r) => r.steps != null);
 
-  return `You are a personal health AI companion texting a high-performing professional their morning health brief. Be warm, specific, and actionable. Reference their actual numbers. Write like a knowledgeable friend, not a medical report. Keep it under 200 words. Use their name.
+  return `You are a personal health AI companion writing a high-performing professional's morning health brief. Be warm, specific, and actionable. Reference their actual numbers. Write like a knowledgeable friend, not a medical report. Aim for ~250-300 words so it works as an email body (the first ~200 words also serve as their SMS). Use their name.
 
 User's data:
 - Name: ${name}

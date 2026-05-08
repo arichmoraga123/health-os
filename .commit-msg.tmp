@@ -1,0 +1,6 @@
+feat: phase 7 attention tracker, MD export, and morning email attachments
+
+Adds an attention_logs table, dashboard widget, full /attention page with
+timeline + category breakdown + Google Calendar sync/reconcile, John-format
+markdown export (day + month), and updates the morning agent email to attach
+yesterday's Oura health report and attention log MD.
