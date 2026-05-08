@@ -35,6 +35,7 @@ export function SettingsClient() {
   const [saving, setSaving] = useState(false);
   const [smsBusy, setSmsBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [googleCalendarConnected, setGoogleCalendarConnected] = useState<boolean | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/settings", { cache: "no-store" });
@@ -58,6 +59,20 @@ export function SettingsClient() {
     }, 0);
     return () => clearTimeout(t);
   }, [load]);
+
+  useEffect(() => {
+    void (async () => {
+      const r = await fetch("/api/calendar/status", { cache: "no-store" });
+      const j = (await r.json().catch(() => ({}))) as { connected?: boolean };
+      if (r.ok) setGoogleCalendarConnected(!!j.connected);
+    })();
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get("calendar") === "connected") {
+        setNote("Google Calendar connected.");
+      }
+    }
+  }, []);
 
   const patch = async (body: Record<string, unknown>) => {
     setSaving(true);
@@ -127,6 +142,24 @@ export function SettingsClient() {
   return (
     <div className="mx-auto max-w-xl space-y-6">
       {note ? <p className="text-[12px] text-[var(--ready)]">{note}</p> : null}
+
+      <section className="panel space-y-4 p-5">
+        <h2 className="text-[15px] font-semibold text-white">Google Calendar</h2>
+        <p className="text-[12px] text-[var(--text-secondary)]">
+          Connect your Google account so we can log each night&apos;s sleep as a private calendar block after the morning
+          sync (and from the dashboard).
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <a href="/api/calendar/auth" className="btn btn-primary !px-5 !py-2 !text-[12px]">
+            Connect Google Calendar
+          </a>
+          {googleCalendarConnected === true ? (
+            <span className="text-[12px] text-[var(--ready)]">Connected</span>
+          ) : googleCalendarConnected === false ? (
+            <span className="text-[12px] text-[var(--text-muted)]">Not connected</span>
+          ) : null}
+        </div>
+      </section>
 
       <section className="panel space-y-4 p-5">
         <h2 className="text-[15px] font-semibold text-white">Phone</h2>

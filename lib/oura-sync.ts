@@ -225,7 +225,7 @@ export function mergeOuraDaily(
       walkingDistance: num(a?.equivalent_walking_distance),
       highActivityTime: num(a?.high_activity_time),
       sedentaryTime: num(a?.sedentary_time),
-      rawSleep: s ?? null,
+      rawSleep: ds ?? s ?? null,
       rawReadiness: { row: r ?? null, contributors: readContrib },
       rawActivity: { row: a ?? null, contributors: activityContrib },
     };

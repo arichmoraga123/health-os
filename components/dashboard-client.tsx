@@ -43,6 +43,8 @@ export function DashboardClient({
     typeof window !== "undefined" ? localStorage.getItem("healthos_last_sync") : null,
   );
   const [toast, setToast] = useState<string | null>(null);
+  const [googleCalConnected, setGoogleCalConnected] = useState<boolean | null>(null);
+  const [calLogging, setCalLogging] = useState(false);
 
   const loadRange = useCallback(
     async (days: (typeof RANGES)[number]) => {
@@ -100,6 +102,14 @@ export function DashboardClient({
     });
   }, [todayRow]);
 
+  useEffect(() => {
+    void (async () => {
+      const r = await fetch("/api/calendar/status", { cache: "no-store" });
+      const j = (await r.json().catch(() => ({}))) as { connected?: boolean };
+      if (r.ok) setGoogleCalConnected(!!j.connected);
+    })();
+  }, []);
+
   async function syncNow() {
     setSyncing(true);
     try {
@@ -125,6 +135,21 @@ export function DashboardClient({
     } finally {
       setSyncing(false);
       setTimeout(() => setToast(null), 2800);
+    }
+  }
+
+  async function logSleepToCalendar() {
+    setCalLogging(true);
+    try {
+      const res = await fetch("/api/calendar/log-sleep", { method: "POST" });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(j.error ?? "Calendar log failed");
+      setToast("Sleep logged to Google Calendar.");
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Calendar log failed");
+    } finally {
+      setCalLogging(false);
+      setTimeout(() => setToast(null), 3200);
     }
   }
 
@@ -216,6 +241,17 @@ export function DashboardClient({
           >
             Reset & Resync
           </button>
+          {googleCalConnected ? (
+            <button
+              type="button"
+              onClick={() => void logSleepToCalendar()}
+              disabled={syncing || calLogging}
+              className="btn btn-outline !px-5 !py-2 !text-[12px] uppercase tracking-wide disabled:opacity-50"
+              title="Create or replace today’s sleep block on Google Calendar"
+            >
+              {calLogging ? "Logging…" : "Log to Calendar"}
+            </button>
+          ) : null}
           <div className="flex items-center gap-2 rounded-full border border-[var(--border)] bg-white/[0.04] px-3 py-2 text-[11px] text-[var(--text-secondary)]">
             <span className="relative flex size-2">
               <span className="absolute inline-flex size-full animate-ping rounded-full bg-[var(--ready)] opacity-40" />

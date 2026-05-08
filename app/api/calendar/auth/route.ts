@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
-import { getOAuthClient } from "@/lib/google";
+import { requireApiUser } from "@/lib/api-auth";
+import { getGoogleOAuthRedirectUri, getOAuthClient } from "@/lib/google";
 
 export async function GET() {
-  const redirect = `${process.env.NEXTAUTH_URL}/api/calendar/callback`;
+  const auth = await requireApiUser();
+  if ("error" in auth) return auth.error;
+
+  const redirect = getGoogleOAuthRedirectUri();
   const client = getOAuthClient(redirect);
   const url = client.generateAuthUrl({
     access_type: "offline",
-    scope: ["https://www.googleapis.com/auth/calendar.readonly"],
+    scope: ["https://www.googleapis.com/auth/calendar.events"],
     prompt: "consent",
   });
   return NextResponse.redirect(url);

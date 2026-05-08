@@ -4,6 +4,7 @@ import { isWithinLocalTimeWindow } from "@/lib/agent-schedule";
 import { createClaudeMessage } from "@/lib/ai";
 import { dateKeyInTimeZone } from "@/lib/dates";
 import { buildComprehensiveDailyMarkdown } from "@/lib/comprehensive-oura-md";
+import { createSleepEvent, pickSleepRowForCalendarLog, userHasGoogleCalendarTokens } from "@/lib/google-calendar";
 import { generateDailyMarkdown } from "@/lib/generate-daily-md";
 import { buildEveningPrompt, buildMorningPrompt, pickLatestWithSleep } from "@/lib/health-agent-prompts";
 import { getSnapshotsAsc } from "@/lib/health";
@@ -16,9 +17,6 @@ export async function runMorningAgentForUser(
   user: UserRow,
   ctx: { now: Date; appUrl: string; bypassTimeWindow?: boolean },
 ): Promise<{ ok: boolean; brief?: string; detail?: string }> {
-  if (!user.smsEnabled && !user.emailEnabled) {
-    return { ok: true, detail: "skipped: notifications off" };
-  }
   const tz = user.homeTimezone || user.currentTimezone || "UTC";
   if (
     !ctx.bypassTimeWindow &&
@@ -27,11 +25,37 @@ export async function runMorningAgentForUser(
     return { ok: true, detail: "skipped: not local morning window" };
   }
 
+  const hasCalendarTokens = await userHasGoogleCalendarTokens(user.id);
+  if (!user.smsEnabled && !user.emailEnabled && !hasCalendarTokens) {
+    return { ok: true, detail: "skipped: notifications off" };
+  }
+
   try {
     const sync = await runOuraSyncForUser({ userId: user.id, days: 3, timeZone: tz });
     if (!sync.ok) return { ok: false, detail: sync.error };
 
     const snaps = await getSnapshotsAsc(user.id, 14, tz);
+
+    if (hasCalendarTokens) {
+      const { sleepRow: calSleep, readinessRow, wakeDayDateKey } = pickSleepRowForCalendarLog(snaps, tz);
+      if (calSleep?.bedtimeStart && calSleep?.bedtimeEnd) {
+        try {
+          await createSleepEvent(user.id, {
+            timeZone: tz,
+            sleepRow: calSleep,
+            readinessRow,
+            wakeDayDateKey,
+          });
+        } catch (e) {
+          console.error("[morning agent] Google Calendar sleep log failed", e);
+        }
+      }
+    }
+
+    if (!user.smsEnabled && !user.emailEnabled) {
+      return { ok: true, detail: "Oura synced; sleep logged to Google Calendar" };
+    }
+
     const sleepRow = pickLatestWithSleep(snaps);
     const todayKey = dateKeyInTimeZone(ctx.now, tz);
     const todayRow = snaps.find((s) => String(s.date) === todayKey) ?? snaps[snaps.length - 1];

@@ -4,7 +4,7 @@ import { google } from "googleapis";
 import { db } from "@/db/client";
 import { calendarEvents, googleCalendarTokens } from "@/db/schema";
 import { requireApiUser } from "@/lib/api-auth";
-import { getOAuthClient } from "@/lib/google";
+import { getGoogleOAuthRedirectUri, getOAuthClient } from "@/lib/google";
 
 export async function GET() {
   const auth = await requireApiUser();
@@ -15,7 +15,7 @@ export async function GET() {
     .where(eq(googleCalendarTokens.userId, auth.userId))
     .limit(1);
   if (!tokens?.accessToken) return NextResponse.json([]);
-  const oauth = getOAuthClient(`${process.env.NEXTAUTH_URL}/api/calendar/callback`);
+  const oauth = getOAuthClient(getGoogleOAuthRedirectUri());
   oauth.setCredentials({ access_token: tokens.accessToken, refresh_token: tokens.refreshToken ?? undefined });
   const calendar = google.calendar({ version: "v3", auth: oauth });
   const result = await calendar.events.list({ calendarId: "primary", maxResults: 25, singleEvents: true });
