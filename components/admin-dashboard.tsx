@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
 type UserRow = {
   id: string;
@@ -9,6 +9,22 @@ type UserRow = {
   phoneMasked: string;
   tokenMasked: string;
   lastSyncAt: string | null;
+  driveWatching?: boolean;
+  driveChannelExpiry?: string | null;
+  driveLastFile?: {
+    fileName: string;
+    status: string;
+    processedAt: string | null;
+    eventsCreated: number;
+  } | null;
+};
+
+type DriveFileRow = {
+  fileName: string;
+  status: string;
+  processedAt: string | null;
+  eventsCreated: number;
+  error: string | null;
 };
 
 type LogRow = {
@@ -40,10 +56,62 @@ export function AdminDashboard() {
   const [modalDate, setModalDate] = useState("");
   const [modalBusy, setModalBusy] = useState(false);
 
+  const [driveExpandUserId, setDriveExpandUserId] = useState<string | null>(null);
+  const [driveFilesByUser, setDriveFilesByUser] = useState<Record<string, DriveFileRow[]>>({});
+  const [driveFilesBusy, setDriveFilesBusy] = useState<string | null>(null);
+  const [driveProcessBusy, setDriveProcessBusy] = useState<string | null>(null);
+
   const selectedEmail = useMemo(() => {
     const u = users.find((x) => x.id === selectedUserId);
     return u?.email ?? "";
   }, [users, selectedUserId]);
+
+  const driveUsers = useMemo(() => users.filter((u) => u.driveWatching), [users]);
+
+  const loadDriveFiles = async (userId: string) => {
+    setDriveFilesBusy(userId);
+    try {
+      const res = await fetch(`/api/admin/drive-files?userId=${encodeURIComponent(userId)}`, {
+        cache: "no-store",
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Failed to load files");
+      setDriveFilesByUser((prev) => ({ ...prev, [userId]: j.files ?? [] }));
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Load failed");
+    } finally {
+      setDriveFilesBusy(null);
+    }
+  };
+
+  const toggleDriveFiles = (userId: string) => {
+    if (driveExpandUserId === userId) {
+      setDriveExpandUserId(null);
+      return;
+    }
+    setDriveExpandUserId(userId);
+    if (!driveFilesByUser[userId]) void loadDriveFiles(userId);
+  };
+
+  const processDriveNow = async (userId: string) => {
+    setDriveProcessBusy(userId);
+    try {
+      const res = await fetch("/api/admin/drive-process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Process failed");
+      showToast("Drive files processed");
+      await load();
+      if (driveExpandUserId === userId) void loadDriveFiles(userId);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Process failed");
+    } finally {
+      setDriveProcessBusy(null);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoadErr(null);
@@ -269,6 +337,123 @@ export function AdminDashboard() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="panel p-5 md:p-8">
+        <h2 className="text-[16px] font-semibold text-white">Drive processing</h2>
+        <p className="mt-1 text-[12px] text-[var(--text-secondary)]">
+          Users with an active Google Drive push channel for the attention tracker folder. Renewals run on a daily cron.
+        </p>
+        {!driveUsers.length ? (
+          <p className="mt-3 text-[13px] text-[var(--text-muted)]">No users with Drive watching enabled.</p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[720px] border-collapse text-left text-[12px]">
+              <thead>
+                <tr className="border-b border-[var(--border)] text-[var(--text-muted)]">
+                  <th className="py-2 pr-3 font-medium">User</th>
+                  <th className="py-2 pr-3 font-medium">Channel expiry</th>
+                  <th className="py-2 pr-3 font-medium">Last file</th>
+                  <th className="py-2 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {driveUsers.map((u) => (
+                  <Fragment key={u.id}>
+                    <tr className="border-b border-[var(--border)]/60 text-[var(--text-secondary)]">
+                      <td className="py-2 pr-3 text-white">
+                        {u.name} <span className="text-[var(--text-muted)]">({u.email})</span>
+                      </td>
+                      <td className="py-2 pr-3">
+                        {u.driveChannelExpiry
+                          ? new Date(u.driveChannelExpiry).toLocaleString(undefined, {
+                              month: "short",
+                              day: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })
+                          : "—"}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {u.driveLastFile ? (
+                          <>
+                            <span className="text-white">{u.driveLastFile.fileName}</span>
+                            <span
+                              className={
+                                u.driveLastFile.status === "success"
+                                  ? " ml-2 text-[var(--ready)]"
+                                  : " ml-2 text-[var(--warn)]"
+                              }
+                            >
+                              {u.driveLastFile.status}
+                            </span>
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="py-2">
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            type="button"
+                            disabled={driveProcessBusy === u.id}
+                            className="rounded-lg border border-[var(--border)] bg-white/[0.04] px-2 py-1 text-[11px] text-white hover:bg-white/[0.08] disabled:opacity-40"
+                            onClick={() => void processDriveNow(u.id)}
+                          >
+                            {driveProcessBusy === u.id ? "Processing…" : "Process files now"}
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-lg border border-[var(--border)] bg-white/[0.04] px-2 py-1 text-[11px] text-white hover:bg-white/[0.08]"
+                            onClick={() => void toggleDriveFiles(u.id)}
+                          >
+                            {driveExpandUserId === u.id ? "Hide processed files" : "View processed files"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {driveExpandUserId === u.id ? (
+                      <tr className="border-b border-[var(--border)]/60 bg-black/20">
+                        <td colSpan={4} className="px-3 py-3">
+                          {driveFilesBusy === u.id ? (
+                            <p className="text-[12px] text-[var(--text-secondary)]">Loading…</p>
+                          ) : (
+                            <table className="w-full border-collapse text-left text-[11px]">
+                              <thead>
+                                <tr className="text-[var(--text-muted)]">
+                                  <th className="py-1 pr-2 font-medium">File</th>
+                                  <th className="py-1 pr-2 font-medium">Status</th>
+                                  <th className="py-1 pr-2 font-medium">Events</th>
+                                  <th className="py-1 pr-2 font-medium">Processed</th>
+                                  <th className="py-1 font-medium">Error</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(driveFilesByUser[u.id] ?? []).map((f, idx) => (
+                                  <tr key={`${f.fileName}-${idx}`}>
+                                    <td className="py-1 pr-2 text-white">{f.fileName}</td>
+                                    <td className="py-1 pr-2">{f.status}</td>
+                                    <td className="py-1 pr-2">{f.eventsCreated}</td>
+                                    <td className="py-1 pr-2 text-[var(--text-secondary)]">
+                                      {f.processedAt ? new Date(f.processedAt).toLocaleString() : "—"}
+                                    </td>
+                                    <td className="max-w-[200px] truncate py-1 text-[11px] text-[var(--warn)]" title={f.error ?? ""}>
+                                      {f.error ?? "—"}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section id="admin-send" className="panel p-5 md:p-8">

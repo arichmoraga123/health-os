@@ -7,6 +7,7 @@ import {
   real,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -298,3 +299,32 @@ export const attentionLogs = pgTable("attention_logs", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+
+export const driveWatchChannels = pgTable("drive_watch_channels", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id")
+    .references(() => users.id, { onDelete: "cascade" })
+    .notNull(),
+  channelId: text("channel_id").notNull(),
+  resourceId: text("resource_id").notNull(),
+  folderId: text("folder_id").notNull(),
+  expiration: timestamp("expiration", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const driveProcessedFiles = pgTable(
+  "drive_processed_files",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .references(() => users.id, { onDelete: "cascade" })
+      .notNull(),
+    fileId: text("file_id").notNull(),
+    fileName: text("file_name").notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true }).defaultNow(),
+    eventsCreated: integer("events_created").notNull().default(0),
+    status: text("status").notNull(),
+    error: text("error"),
+  },
+  (t) => [uniqueIndex("drive_processed_files_user_file_idx").on(t.userId, t.fileId)],
+);

@@ -36,6 +36,18 @@ export function SettingsClient() {
   const [smsBusy, setSmsBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [googleCalendarConnected, setGoogleCalendarConnected] = useState<boolean | null>(null);
+  const [driveConnected, setDriveConnected] = useState<boolean | null>(null);
+  const [driveExpiry, setDriveExpiry] = useState<string | null>(null);
+  const [driveRecent, setDriveRecent] = useState<
+    Array<{
+      fileName: string;
+      status: string;
+      processedAt: string | null;
+      eventsCreated: number;
+      error: string | null;
+    }>
+  >([]);
+  const [driveBusy, setDriveBusy] = useState(false);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/settings", { cache: "no-store" });
@@ -60,19 +72,40 @@ export function SettingsClient() {
     return () => clearTimeout(t);
   }, [load]);
 
+  const loadDrive = useCallback(async () => {
+    const r = await fetch("/api/drive/setup", { cache: "no-store" });
+    const j = (await r.json().catch(() => ({}))) as {
+      connected?: boolean;
+      channelExpiry?: string | null;
+      recentFiles?: Array<{
+        fileName: string;
+        status: string;
+        processedAt: string | null;
+        eventsCreated: number;
+        error: string | null;
+      }>;
+    };
+    if (r.ok) {
+      setDriveConnected(!!j.connected);
+      setDriveExpiry(j.channelExpiry ?? null);
+      setDriveRecent(j.recentFiles ?? []);
+    }
+  }, []);
+
   useEffect(() => {
     void (async () => {
       const r = await fetch("/api/calendar/status", { cache: "no-store" });
       const j = (await r.json().catch(() => ({}))) as { connected?: boolean };
       if (r.ok) setGoogleCalendarConnected(!!j.connected);
     })();
+    void loadDrive();
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search);
       if (p.get("calendar") === "connected") {
         setTimeout(() => setNote("Google Calendar connected."), 0);
       }
     }
-  }, []);
+  }, [loadDrive]);
 
   const patch = async (body: Record<string, unknown>) => {
     setSaving(true);
@@ -147,7 +180,7 @@ export function SettingsClient() {
         <h2 className="text-[15px] font-semibold text-white">Google Calendar</h2>
         <p className="text-[12px] text-[var(--text-secondary)]">
           Connect your Google account so we can log each night&apos;s sleep as a private calendar block after the morning
-          sync (and from the dashboard).
+          sync (and from the dashboard). Drive import uses the same connection; reconnect after enabling Drive if prompted.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <a href="/api/calendar/auth" className="btn btn-primary !px-5 !py-2 !text-[12px]">
@@ -158,6 +191,117 @@ export function SettingsClient() {
           ) : googleCalendarConnected === false ? (
             <span className="text-[12px] text-[var(--text-muted)]">Not connected</span>
           ) : null}
+        </div>
+      </section>
+
+      <section className="panel space-y-4 p-5">
+        <h2 className="text-[15px] font-semibold text-white">Attention tracker — Google Drive</h2>
+        <p className="text-[12px] text-[var(--text-secondary)]">
+          Connect your Google Drive so we can watch the folder{" "}
+          <span className="text-white">Google Drive / attention tracker / files</span> and import activity markdown
+          automatically.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-[12px] text-[var(--text-muted)]">Status:</span>
+          {driveConnected === true ? (
+            <span className="text-[12px] text-[var(--ready)]">Connected</span>
+          ) : driveConnected === false ? (
+            <span className="text-[12px] text-[var(--text-muted)]">Not connected</span>
+          ) : (
+            <span className="text-[12px] text-[var(--text-muted)]">—</span>
+          )}
+          {driveExpiry ? (
+            <span className="text-[11px] text-[var(--text-secondary)]">
+              Channel renews before {new Date(driveExpiry).toLocaleString()}
+            </span>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          disabled={driveBusy || googleCalendarConnected === false}
+          onClick={async () => {
+            setDriveBusy(true);
+            setNote(null);
+            try {
+              const res = await fetch("/api/drive/setup", { method: "POST" });
+              const j = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(j.error ?? "Setup failed");
+              setNote(j.message ?? "Drive watching enabled.");
+              await loadDrive();
+            } catch (e) {
+              setNote(e instanceof Error ? e.message : "Drive setup error");
+            } finally {
+              setDriveBusy(false);
+            }
+          }}
+          className="btn btn-primary !px-5 !py-2 !text-[12px] disabled:opacity-40"
+        >
+          {driveBusy ? "Working…" : "Setup Drive watching"}
+        </button>
+        {googleCalendarConnected === false ? (
+          <p className="text-[11px] text-[var(--warn)]">Connect Google Calendar first (Drive uses the same OAuth tokens).</p>
+        ) : null}
+        <div className="text-[12px] text-[var(--text-secondary)]">
+          <p className="font-medium text-white">How it works</p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5">
+            <li>Upload your daily markdown file to that folder.</li>
+            <li>We detect changes within minutes via Google push notifications.</li>
+            <li>Activities are saved and calendar events are created when possible.</li>
+            <li>No manual import step on this site.</li>
+          </ol>
+        </div>
+        <div>
+          <p className="text-[11px] uppercase tracking-wider text-[var(--text-muted)]">Recent imports</p>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full min-w-[480px] border-collapse text-left text-[12px]">
+              <thead>
+                <tr className="border-b border-[var(--border)] text-[var(--text-muted)]">
+                  <th className="py-2 pr-2 font-medium">File</th>
+                  <th className="py-2 pr-2 font-medium">Status</th>
+                  <th className="py-2 pr-2 font-medium">Events</th>
+                  <th className="py-2 font-medium">When</th>
+                </tr>
+              </thead>
+              <tbody>
+                {driveRecent.length ? (
+                  driveRecent.map((r, i) => (
+                    <tr key={`${r.fileName}-${i}`} className="border-b border-[var(--border)]/60 text-[var(--text-secondary)]">
+                      <td className="py-2 pr-2 text-white">{r.fileName}</td>
+                      <td className="py-2 pr-2">
+                        <span
+                          className={
+                            r.status === "success"
+                              ? "text-[var(--ready)]"
+                              : r.status === "skipped"
+                                ? "text-[var(--text-muted)]"
+                                : "text-[var(--warn)]"
+                          }
+                        >
+                          {r.status}
+                        </span>
+                        {r.error ? (
+                          <span className="ml-1 text-[11px] text-[var(--warn)]" title={r.error}>
+                            ({r.error.slice(0, 48)}
+                            {r.error.length > 48 ? "…" : ""})
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="py-2 pr-2">{r.eventsCreated}</td>
+                      <td className="py-2">
+                        {r.processedAt ? new Date(r.processedAt).toLocaleString() : "—"}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="py-3 text-[var(--text-muted)]">
+                      No imports yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 

@@ -1,7 +1,7 @@
 import { desc, eq, max } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db/client";
-import { dailySnapshots, messagesLog, users } from "@/db/schema";
+import { dailySnapshots, driveProcessedFiles, driveWatchChannels, messagesLog, users } from "@/db/schema";
 import { maskOuraToken, maskPhone } from "@/lib/admin";
 import { requireAdminApi } from "@/lib/require-admin-api";
 
@@ -21,14 +21,46 @@ export async function GET() {
 
   const syncMap = new Map(agg.map((r) => [r.userId, r.lastSync]));
 
-  const payload = allUsers.map((u) => ({
-    id: u.id,
-    name: u.name ?? "—",
-    email: u.email ?? "—",
-    phoneMasked: maskPhone(u.phoneNumber),
-    tokenMasked: maskOuraToken(u.ouraToken),
-    lastSyncAt: syncMap.get(u.id)?.toISOString() ?? null,
-  }));
+  const watchRows = await db
+    .select()
+    .from(driveWatchChannels)
+    .orderBy(desc(driveWatchChannels.createdAt));
+  const latestWatchByUser = new Map<string, (typeof watchRows)[0]>();
+  for (const w of watchRows) {
+    if (!latestWatchByUser.has(w.userId)) latestWatchByUser.set(w.userId, w);
+  }
+
+  const processedRows = await db
+    .select()
+    .from(driveProcessedFiles)
+    .orderBy(desc(driveProcessedFiles.processedAt));
+  const lastProcessedByUser = new Map<string, (typeof processedRows)[0]>();
+  for (const p of processedRows) {
+    if (!lastProcessedByUser.has(p.userId)) lastProcessedByUser.set(p.userId, p);
+  }
+
+  const payload = allUsers.map((u) => {
+    const watch = latestWatchByUser.get(u.id);
+    const lastFile = lastProcessedByUser.get(u.id);
+    return {
+      id: u.id,
+      name: u.name ?? "—",
+      email: u.email ?? "—",
+      phoneMasked: maskPhone(u.phoneNumber),
+      tokenMasked: maskOuraToken(u.ouraToken),
+      lastSyncAt: syncMap.get(u.id)?.toISOString() ?? null,
+      driveWatching: !!watch && watch.expiration.getTime() > Date.now(),
+      driveChannelExpiry: watch?.expiration?.toISOString() ?? null,
+      driveLastFile: lastFile
+        ? {
+            fileName: lastFile.fileName,
+            status: lastFile.status,
+            processedAt: lastFile.processedAt?.toISOString() ?? null,
+            eventsCreated: lastFile.eventsCreated,
+          }
+        : null,
+    };
+  });
 
   const logs = await db
     .select({

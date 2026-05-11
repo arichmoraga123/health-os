@@ -128,8 +128,11 @@ function googleApiErrorMessage(e: unknown, prefix: string): string {
   }
 }
 
-/** Returns a configured google.calendar client. Throws with a detailed reason on failure. */
-export async function getCalendarClientOrThrow(userId: string) {
+/**
+ * OAuth2 client with refreshed access token when needed.
+ * Shared by Calendar and Drive APIs (same Google OAuth row).
+ */
+export async function getGoogleOAuth2ClientForUserOrThrow(userId: string) {
   const [row] = await db
     .select()
     .from(googleCalendarTokens)
@@ -183,6 +186,12 @@ export async function getCalendarClientOrThrow(userId: string) {
     );
   }
 
+  return oauth;
+}
+
+/** Returns a configured google.calendar client. Throws with a detailed reason on failure. */
+export async function getCalendarClientOrThrow(userId: string) {
+  const oauth = await getGoogleOAuth2ClientForUserOrThrow(userId);
   return google.calendar({ version: "v3", auth: oauth });
 }
 
