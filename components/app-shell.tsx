@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 
 const navBeforeSettings = [
   ["Dashboard", "/dashboard", "var(--sleep)"],
+  ["Sleep", "/sleep", "var(--sleep)"],
   ["Activities", "/activities", "var(--active)"],
   ["Attention Log", "/attention", "var(--warn)"],
   ["Report", "/report", "var(--ready)"],
